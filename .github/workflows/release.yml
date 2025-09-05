@@ -209,11 +209,27 @@ jobs:
             --bundle-identifier "com.videospeedcontroller.safari" \
             --swift
           
+          # 生成されたプロジェクト構造を確認
+          echo "Generated project structure:"
+          ls -la ./safari-app/
+          find ./safari-app -name "*.xcodeproj" -type d
+          
           # 生成されたXcodeプロジェクトをビルド
           cd safari-app
           
+          # 実際のプロジェクトファイル名を取得
+          PROJECT_FILE=$(find . -name "*.xcodeproj" -type d | head -1)
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "❌ No Xcode project found"
+            echo "Available files:"
+            find . -type f
+            exit 1
+          fi
+          
+          echo "Found project: $PROJECT_FILE"
+          
           # Xcodeプロジェクトをビルド（リリースモード）
-          xcodebuild -project "Video Speed Controller.xcodeproj" \
+          xcodebuild -project "$PROJECT_FILE" \
             -scheme "Video Speed Controller" \
             -configuration Release \
             -derivedDataPath ./build \
@@ -229,7 +245,7 @@ jobs:
             # DMGファイルを作成
             cd ..
             mkdir dmg-temp
-            cp -r "$APP_PATH" dmg-temp/
+            cp -r safari-app/"$APP_PATH" dmg-temp/
             
             # インストール手順を追加
             cat > dmg-temp/README.txt << 'EOF'
@@ -267,6 +283,8 @@ jobs:
             echo "❌ Failed to build Safari Web Extension App"
             echo "Available files in build directory:"
             find ./build -name "*.app" || echo "No .app files found"
+            echo "Full build directory structure:"
+            find ./build -type f || echo "Build directory not found"
             exit 1
           fi
       
