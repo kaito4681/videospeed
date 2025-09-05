@@ -248,16 +248,21 @@ jobs:
           echo "Build directory before build:"
           ls -la ./build/ || echo "Build directory doesn't exist yet"
           
-          # Xcodeビルドを実行
+          # Xcodeビルドを実行（署名なし、自己完結型アプリとして）
           xcodebuild -project "$PROJECT_FILE" \
             -scheme "$SCHEME_NAME" \
             -configuration Release \
             -derivedDataPath ./build \
             -destination "generic/platform=macOS" \
+            -destination "platform=macOS,arch=x86_64" \
             DEVELOPMENT_TEAM="" \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            SKIP_INSTALL=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            MACOSX_DEPLOYMENT_TARGET=10.14 \
             build
           
           # ビルド後の構造を詳細に確認
@@ -280,23 +285,43 @@ jobs:
             APP_NAME=$(basename "$APP_PATH")
             echo "App name: $APP_NAME"
             
+            # アプリに自己署名を追加（開発者証明書なしでも動作するように）
+            echo "Adding ad-hoc code signature to app..."
+            codesign --force --deep --sign - "$APP_PATH" || echo "Codesigning failed, but continuing..."
+            
+            # 署名状況を確認
+            codesign -dv "$APP_PATH" || echo "Could not verify signature, but app may still work"
+            
             # DMGファイルを作成
             cd ..
             mkdir dmg-temp
             cp -r "safari-app/$APP_PATH" dmg-temp/
             
-            # インストール手順を追加
+            # インストール手順を追加（警告についての説明を含む）
             cat > dmg-temp/README.txt << EOF
           Video Speed Controller for Safari
           ==================================
           
+          ⚠️  IMPORTANT SECURITY NOTICE  ⚠️
+          This app is NOT signed with an Apple Developer certificate.
+          macOS will show security warnings when you first run it.
+          
           Installation Instructions:
           
           1. Drag "$APP_NAME" to your Applications folder
-          2. Double-click the app to launch it
-          3. The app will automatically register the Safari extension
-          4. Open Safari and go to Safari > Preferences > Extensions
-          5. Find "Video Speed Controller" and enable it
+          
+          2. First Launch (IMPORTANT):
+             - Double-click the app - macOS will show a warning
+             - Click "Cancel" when the warning appears
+             - Right-click the app and select "Open"
+             - Click "Open" in the security dialog
+             - Or go to System Preferences > Security & Privacy > General
+             - Click "Open Anyway" next to the blocked app message
+          
+          3. After the app opens:
+             - The app will automatically register the Safari extension
+             - Open Safari and go to Safari > Preferences > Extensions
+             - Find "Video Speed Controller" and enable it
           
           Usage:
           - Use keyboard shortcuts to control video speed on any website
@@ -305,6 +330,9 @@ jobs:
           
           Note: This app contains a Safari Web Extension and must remain installed
           for the extension to work. The app can run in the background.
+          
+          This is open source software. Source code available at:
+          https://github.com/igrigorik/videospeed
           EOF
             
             # Applications フォルダへのショートカットを作成
@@ -317,6 +345,7 @@ jobs:
             rm -rf dmg-temp safari-app
             
             echo "✅ Safari Web Extension App DMG created successfully"
+            echo "📝 Note: This app is unsigned and will require user approval to run"
           else
             echo "❌ Failed to build Safari Web Extension App"
             echo "Available files in build directory:"
@@ -366,9 +395,18 @@ jobs:
             1. Download `videospeed-safari.dmg`
             2. Double-click to mount the disk image
             3. Drag "Video Speed Controller.app" to your Applications folder
-            4. Double-click the app to launch it (this registers the extension)
-            5. Open Safari and go to Safari > Preferences > Extensions
-            6. Find "Video Speed Controller" and enable it
+            4. **IMPORTANT**: First launch requires special steps:
+               - Double-click the app - macOS will show a security warning
+               - Click "Cancel" when the warning appears
+               - Right-click the app and select "Open"
+               - Click "Open" in the security dialog
+               - Or go to System Preferences > Security & Privacy > General
+               - Click "Open Anyway" next to the blocked app message
+            5. After the app opens, it will register the Safari extension
+            6. Open Safari and go to Safari > Preferences > Extensions
+            7. Find "Video Speed Controller" and enable it
+            
+            **Note**: This app is unsigned (no Apple Developer certificate) so macOS will show security warnings. The app is safe to use - it's built from open source code.
             
             ### Changes
             - Updated to latest upstream version
