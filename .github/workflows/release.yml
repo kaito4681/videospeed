@@ -235,8 +235,8 @@ jobs:
           xcodebuild -project "$PROJECT_FILE" -list
           
           # Xcodeプロジェクトをビルド（リリースモード）
-          # まず利用可能な最初のスキームを取得
-          SCHEME_NAME=$(xcodebuild -project "$PROJECT_FILE" -list | grep -A 10 "Schemes:" | tail -n +2 | head -1 | xargs)
+          # macOS用のスキームを取得
+          SCHEME_NAME=$(xcodebuild -project "$PROJECT_FILE" -list | grep -A 10 "Schemes:" | grep "macOS" | head -1 | xargs)
           echo "Using scheme: $SCHEME_NAME"
           
           # プロジェクトをビルド
