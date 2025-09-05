@@ -84,7 +84,7 @@ jobs:
 
   build-and-release:
     name: Build and Release Extensions
-    runs-on: ubuntu-latest
+    runs-on: macos-latest  # safari-web-extension-converterを使用するためmacOSが必要
     needs: check-upstream
     if: needs.check-upstream.outputs.should_build == 'true'
     steps:
@@ -200,87 +200,75 @@ jobs:
       
       - name: Create Safari DMG
         run: |
-          # Safari Web Extension用のシンプルなパッケージを作成
-          EXTENSION_NAME="Video Speed Controller Safari Extension"
+          # xcrun safari-web-extension-converterを使用してSafari Web Extension Appを作成
           
-          # DMG用のフォルダ構造を作成
-          mkdir -p dmg-temp
+          # Chrome拡張機能からSafari Web Extension Appを作成
+          xcrun safari-web-extension-converter dist \
+            --project-location ./safari-app \
+            --app-name "Video Speed Controller" \
+            --bundle-identifier "com.videospeedcontroller.safari" \
+            --swift
           
-          # Safari Web Extension フォルダを作成
-          mkdir -p "dmg-temp/${EXTENSION_NAME}"
-          cp -r dist-safari/* "dmg-temp/${EXTENSION_NAME}/"
+          # 生成されたXcodeプロジェクトをビルド
+          cd safari-app
           
-          # インストール手順を追加
-          cat > dmg-temp/README.txt << 'EOF'
+          # Xcodeプロジェクトをビルド（リリースモード）
+          xcodebuild -project "Video Speed Controller.xcodeproj" \
+            -scheme "Video Speed Controller" \
+            -configuration Release \
+            -derivedDataPath ./build \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          # ビルドされたアプリを取得
+          APP_PATH="./build/Build/Products/Release/Video Speed Controller.app"
+          
+          if [ -d "$APP_PATH" ]; then
+            # DMGファイルを作成
+            cd ..
+            mkdir dmg-temp
+            cp -r "$APP_PATH" dmg-temp/
+            
+            # インストール手順を追加
+            cat > dmg-temp/README.txt << 'EOF'
           Video Speed Controller for Safari
           ==================================
           
           Installation Instructions:
           
-          1. Copy the "Video Speed Controller Safari Extension" folder to your Desktop or Documents
-          2. Open Safari
-          3. Go to Safari > Preferences > Extensions (or Safari > Settings > Extensions on newer versions)
-          4. Click the "+" button or "Load Extension" 
-          5. Navigate to and select the "Video Speed Controller Safari Extension" folder
-          6. Click "Select Folder" to install the extension
-          7. Enable the extension in the list
-          
-          Alternative Installation (for development):
-          1. Enable "Allow Unsigned Extensions" in Safari > Develop menu
-          2. Follow steps 2-7 above
+          1. Drag "Video Speed Controller.app" to your Applications folder
+          2. Double-click the app to launch it
+          3. The app will automatically register the Safari extension
+          4. Open Safari and go to Safari > Preferences > Extensions
+          5. Find "Video Speed Controller" and enable it
           
           Usage:
           - Use keyboard shortcuts to control video speed on any website
           - Default shortcuts: S (slower), D (faster), R (reset), etc.
           - Click the extension icon in Safari's toolbar for options
           
-          Supported Websites:
-          - YouTube, Netflix, Amazon Prime Video, Apple TV+, Facebook Videos
-          - Most HTML5 video players on other websites
-          
-          Note: This is a Safari Web Extension that works with Safari 14+ on macOS Big Sur or later.
+          Note: This app contains a Safari Web Extension and must remain installed
+          for the extension to work. The app can run in the background.
           EOF
-          
-          # Safari 開発者向けの手順も追加
-          cat > "dmg-temp/Developer Instructions.txt" << 'EOF'
-          For Developers:
-          ===============
-          
-          To modify or debug this extension:
-          
-          1. Enable the Develop menu in Safari:
-             Safari > Preferences > Advanced > "Show Develop menu in menu bar"
-          
-          2. Enable unsigned extensions:
-             Develop > "Allow Unsigned Extensions"
-          
-          3. Load the extension as described in README.txt
-          
-          4. To debug:
-             - Right-click on the extension icon > "Inspect Extension"
-             - Or go to Develop > Web Extension Background Pages > Video Speed Controller
-          
-          Extension Structure:
-          - manifest.json: Extension configuration
-          - content.js: Injected into web pages
-          - inject.js: Runs in page context
-          - background.js: Background service worker
-          - ui/: Popup and options pages
-          - assets/: Icons and resources
-          EOF
-          
-          # DMGを作成
-          if command -v hdiutil >/dev/null 2>&1; then
-              # macOS環境
-              hdiutil create -volname "Video Speed Controller" -srcfolder dmg-temp -ov -format UDZO videospeed-safari.dmg
+            
+            # Applications フォルダへのショートカットを作成
+            ln -s /Applications dmg-temp/Applications
+            
+            # DMGを作成
+            hdiutil create -volname "Video Speed Controller" -srcfolder dmg-temp -ov -format UDZO videospeed-safari.dmg
+            
+            # 一時ファイルを削除
+            rm -rf dmg-temp safari-app
+            
+            echo "✅ Safari Web Extension App DMG created successfully"
           else
-              # Linux環境での代替
-              sudo apt-get update && sudo apt-get install -y genisoimage
-              genisoimage -o videospeed-safari.dmg -V "Video Speed Controller" -r -J dmg-temp/
+            echo "❌ Failed to build Safari Web Extension App"
+            echo "Available files in build directory:"
+            find ./build -name "*.app" || echo "No .app files found"
+            exit 1
           fi
-          
-          # 一時ファイルを削除
-          rm -rf dmg-temp
       
       - name: Get current date
         id: date
@@ -321,16 +309,15 @@ jobs:
             #### Safari (DMG Installer)
             1. Download `videospeed-safari.dmg`
             2. Double-click to mount the disk image
-            3. Copy the "Video Speed Controller Safari Extension" folder to your Desktop
-            4. Open Safari and go to Safari > Preferences > Extensions
-            5. Click the "+" button or "Load Extension"
-            6. Navigate to and select the extension folder
-            7. Click "Select Folder" and enable the extension
+            3. Drag "Video Speed Controller.app" to your Applications folder
+            4. Double-click the app to launch it (this registers the extension)
+            5. Open Safari and go to Safari > Preferences > Extensions
+            6. Find "Video Speed Controller" and enable it
             
             ### Changes
             - Updated to latest upstream version
             - Chrome extension (Manifest V3)
-            - Safari extension (Manifest V2)
+            - Safari Web Extension App (automatically generated from Chrome extension)
           files: |
             videospeed-chrome.zip
             videospeed-safari.zip
