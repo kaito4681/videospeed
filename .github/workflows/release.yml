@@ -1,0 +1,378 @@
+name: Release Multi-Browser Extensions
+
+on:
+  # fork元の更新を検知（upstream sync後）
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - 'manifest.json'
+      - 'package.json'
+      - 'src/**'
+  # 手動実行
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a new release'
+        required: false
+        default: 'true'
+        type: boolean
+      version_tag:
+        description: 'Version tag (leave empty to use manifest version)'
+        required: false
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build extension
+      run: npm run build
+      
+    - name: Get version from manifest
+      id: version
+      run: |
+        if [ -n "${{ github.event.inputs.version_tag }}" ]; then
+          echo "version=${{ github.event.inputs.version_tag }}" >> $GITHUB_OUTPUT
+          echo "tag_name=${{ github.event.inputs.version_tag }}" >> $GITHUB_OUTPUT
+        else
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag_name=v${VERSION}" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Check if release exists
+      id: check_release
+      run: |
+        TAG="${{ steps.version.outputs.tag_name }}"
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create Safari manifest
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        # Safari用のmanifest.jsonを作成
+        mkdir -p safari-build
+        cp -r dist/* safari-build/
+        
+        # Safari用にmanifest v2に変換
+        node -e "
+        const fs = require('fs');
+        const manifest = JSON.parse(fs.readFileSync('safari-build/manifest.json', 'utf8'));
+        
+        // Safari用の設定に変更
+        manifest.manifest_version = 2;
+        delete manifest.background.service_worker;
+        manifest.background = {
+          scripts: ['background.js'],
+          persistent: false
+        };
+        
+        // Safari用の権限調整
+        manifest.permissions = manifest.permissions.filter(p => p !== 'activeTab');
+        if (!manifest.permissions.includes('tabs')) {
+          manifest.permissions.push('tabs');
+        }
+        
+        // Safari用のアクション調整
+        manifest.browser_action = manifest.action;
+        delete manifest.action;
+        
+        fs.writeFileSync('safari-build/manifest.json', JSON.stringify(manifest, null, 2));
+        "
+        
+    - name: Create Chrome macOS app
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        APP_NAME="VideoSpeedController-Chrome.app"
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        mkdir -p "${APP_NAME}/Contents/"{MacOS,Resources}
+        
+        # Create Info.plist for Chrome app
+        cat > "${APP_NAME}/Contents/Info.plist" << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>videospeed-chrome</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.videospeed.controller.chrome</string>
+            <key>CFBundleName</key>
+            <string>Video Speed Controller for Chrome</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+        
+        # Create Chrome launcher script
+        cat > "${APP_NAME}/Contents/MacOS/videospeed-chrome" << 'EOF'
+        #!/bin/bash
+        
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        EXTENSION_DIR="$SCRIPT_DIR/../Resources/extension"
+        
+        # Check if Chrome is installed
+        if ! [ -d "/Applications/Google Chrome.app" ]; then
+            osascript -e 'display dialog "Google Chrome is required. Please install Chrome first." buttons {"OK"} default button "OK"'
+            exit 1
+        fi
+        
+        # Create temp directory for extension
+        TEMP_EXT_DIR="/tmp/videospeed-chrome-$(date +%s)"
+        cp -r "$EXTENSION_DIR" "$TEMP_EXT_DIR"
+        
+        # Open Chrome with extension
+        open -a "Google Chrome" --args --load-extension="$TEMP_EXT_DIR"
+        
+        # Show success message
+        osascript -e 'display dialog "Video Speed Controller extension has been loaded in Chrome. Enable it in Chrome extensions settings (chrome://extensions/) if needed." buttons {"OK"} default button "OK"'
+        
+        # Clean up after delay
+        (sleep 10 && rm -rf "$TEMP_EXT_DIR") &
+        EOF
+        
+        chmod +x "${APP_NAME}/Contents/MacOS/videospeed-chrome"
+        
+        # Copy Chrome extension files
+        mkdir -p "${APP_NAME}/Contents/Resources/extension"
+        cp -r dist/* "${APP_NAME}/Contents/Resources/extension/"
+        
+        # Copy icon
+        if [ -f "dist/assets/icons/icon128.png" ]; then
+          cp "dist/assets/icons/icon128.png" "${APP_NAME}/Contents/Resources/"
+        fi
+        
+    - name: Create Safari macOS app
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        APP_NAME="VideoSpeedController-Safari.app"
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        mkdir -p "${APP_NAME}/Contents/"{MacOS,Resources}
+        
+        # Create Info.plist for Safari app
+        cat > "${APP_NAME}/Contents/Info.plist" << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>videospeed-safari</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.videospeed.controller.safari</string>
+            <key>CFBundleName</key>
+            <string>Video Speed Controller for Safari</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.14</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+        
+        # Create Safari launcher script
+        cat > "${APP_NAME}/Contents/MacOS/videospeed-safari" << 'EOF'
+        #!/bin/bash
+        
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        EXTENSION_DIR="$SCRIPT_DIR/../Resources/extension"
+        
+        # Check if Safari is available
+        if ! [ -d "/Applications/Safari.app" ]; then
+            osascript -e 'display dialog "Safari is required but not found." buttons {"OK"} default button "OK"'
+            exit 1
+        fi
+        
+        # Create instructions for Safari extension installation
+        INSTRUCTIONS="To install Video Speed Controller in Safari:
+
+1. Copy the extension folder to a permanent location
+2. Open Safari → Preferences → Extensions
+3. Click 'Enable Extension Development'
+4. Click '+' and select the extension folder
+5. Enable the extension in Safari preferences
+
+Extension location: $EXTENSION_DIR
+
+Would you like to open Safari preferences now?"
+        
+        # Show instructions
+        RESULT=$(osascript -e "display dialog \"$INSTRUCTIONS\" buttons {\"Cancel\", \"Open Safari Preferences\"} default button \"Open Safari Preferences\"")
+        
+        if [[ $RESULT == *"Open Safari Preferences"* ]]; then
+            open -b com.apple.Safari --args --preferences
+            open "$EXTENSION_DIR"
+        fi
+        EOF
+        
+        chmod +x "${APP_NAME}/Contents/MacOS/videospeed-safari"
+        
+        # Copy Safari extension files
+        mkdir -p "${APP_NAME}/Contents/Resources/extension"
+        cp -r safari-build/* "${APP_NAME}/Contents/Resources/extension/"
+        
+        # Copy icon
+        if [ -f "safari-build/assets/icons/icon128.png" ]; then
+          cp "safari-build/assets/icons/icon128.png" "${APP_NAME}/Contents/Resources/"
+        fi
+        
+    - name: Create DMG installers
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Create Chrome DMG
+        mkdir chrome-dmg-temp
+        cp -r VideoSpeedController-Chrome.app chrome-dmg-temp/
+        ln -s /Applications chrome-dmg-temp/Applications
+        
+        hdiutil create -volname "Video Speed Controller for Chrome $VERSION" \
+                       -srcfolder chrome-dmg-temp \
+                       -ov -format UDZO \
+                       -imagekey zlib-level=9 \
+                       "VideoSpeedController-Chrome-$VERSION.dmg"
+        
+        # Create Safari DMG
+        mkdir safari-dmg-temp
+        cp -r VideoSpeedController-Safari.app safari-dmg-temp/
+        ln -s /Applications safari-dmg-temp/Applications
+        
+        hdiutil create -volname "Video Speed Controller for Safari $VERSION" \
+                       -srcfolder safari-dmg-temp \
+                       -ov -format UDZO \
+                       -imagekey zlib-level=9 \
+                       "VideoSpeedController-Safari-$VERSION.dmg"
+        
+        # Set environment variables
+        echo "chrome_dmg_path=VideoSpeedController-Chrome-$VERSION.dmg" >> $GITHUB_ENV
+        echo "safari_dmg_path=VideoSpeedController-Safari-$VERSION.dmg" >> $GITHUB_ENV
+        
+    - name: Create ZIP archives
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Create Chrome ZIP
+        zip -r "VideoSpeedController-Chrome-$VERSION-macOS.zip" VideoSpeedController-Chrome.app
+        
+        # Create Safari ZIP
+        zip -r "VideoSpeedController-Safari-$VERSION-macOS.zip" VideoSpeedController-Safari.app
+        
+        # Create extension ZIPs
+        cd dist
+        zip -r "../videospeed-chrome-$VERSION.zip" .
+        cd ../safari-build
+        zip -r "../videospeed-safari-$VERSION.zip" .
+        cd ..
+        
+        # Set environment variables
+        echo "chrome_zip_path=VideoSpeedController-Chrome-$VERSION-macOS.zip" >> $GITHUB_ENV
+        echo "safari_zip_path=VideoSpeedController-Safari-$VERSION-macOS.zip" >> $GITHUB_ENV
+        echo "chrome_ext_zip_path=videospeed-chrome-$VERSION.zip" >> $GITHUB_ENV
+        echo "safari_ext_zip_path=videospeed-safari-$VERSION.zip" >> $GITHUB_ENV
+        
+    - name: Create or update release
+      if: steps.check_release.outputs.exists == 'false' || github.event.inputs.create_release == 'true'
+      run: |
+        TAG_NAME="${{ steps.version.outputs.tag_name }}"
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Create release body
+        cat > release-notes.md << EOF
+        # Video Speed Controller v$VERSION
+        
+        Cross-browser video speed control extension for macOS.
+        
+        ## 🌐 Browser Support
+        
+        ### Chrome/Chromium Browsers
+        - ✅ Google Chrome
+        - ✅ Microsoft Edge
+        - ✅ Brave Browser
+        - ✅ Other Chromium-based browsers
+        
+        ### Safari
+        - ✅ Safari 14+ (macOS 10.14+)
+        - ⚠️ Requires manual installation (Safari extension development mode)
+        
+        ## 📦 Installation Options
+        
+        ### Chrome Users (Recommended)
+        1. Download \`${{ env.chrome_dmg_path }}\`
+        2. Open DMG and drag app to Applications
+        3. Run app for one-click installation
+        
+        ### Safari Users
+        1. Download \`${{ env.safari_dmg_path }}\`
+        2. Open DMG and drag app to Applications
+        3. Run app and follow Safari extension setup instructions
+        
+        ### Manual Installation
+        - **Chrome**: Download \`${{ env.chrome_ext_zip_path }}\` and load as unpacked extension
+        - **Safari**: Download \`${{ env.safari_ext_zip_path }}\` and follow Safari developer extension setup
+        
+        ## 🔧 What's New
+        - Cross-browser compatibility
+        - Native macOS app installers
+        - Optimized for both Chrome and Safari
+        - Simplified installation process
+        
+        ## 📋 Requirements
+        - **Chrome**: macOS 10.13+, Chrome 89+
+        - **Safari**: macOS 10.14+, Safari 14+
+        EOF
+        
+        # Create or update release
+        if [ "${{ steps.check_release.outputs.exists }}" = "true" ]; then
+          gh release delete "$TAG_NAME" --yes || true
+          git tag -d "$TAG_NAME" || true
+          git push origin ":refs/tags/$TAG_NAME" || true
+        fi
+        
+        gh release create "$TAG_NAME" \
+          --title "Video Speed Controller v$VERSION" \
+          --notes-file release-notes.md \
+          "${{ env.chrome_dmg_path }}" \
+          "${{ env.safari_dmg_path }}" \
+          "${{ env.chrome_zip_path }}" \
+          "${{ env.safari_zip_path }}" \
+          "${{ env.chrome_ext_zip_path }}" \
+          "${{ env.safari_ext_zip_path }}"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
