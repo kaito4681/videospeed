@@ -228,9 +228,17 @@ jobs:
           
           echo "Found project: $PROJECT_FILE"
           
+          # 利用可能なスキームを確認
+          echo "Available schemes:"
+          xcodebuild -project "$PROJECT_FILE" -list
+          
           # Xcodeプロジェクトをビルド（リリースモード）
+          # まず利用可能な最初のスキームを取得
+          SCHEME_NAME=$(xcodebuild -project "$PROJECT_FILE" -list | grep -A 10 "Schemes:" | tail -n +2 | head -1 | xargs)
+          echo "Using scheme: $SCHEME_NAME"
+          
           xcodebuild -project "$PROJECT_FILE" \
-            -scheme "Video Speed Controller" \
+            -scheme "$SCHEME_NAME" \
             -configuration Release \
             -derivedDataPath ./build \
             DEVELOPMENT_TEAM="" \
