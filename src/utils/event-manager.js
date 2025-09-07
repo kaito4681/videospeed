@@ -168,6 +168,19 @@ class EventManager {
   handleRateChange(event) {
     if (this.coolDown) {
       window.VSC.logger.debug('Rate change event blocked by cooldown');
+
+      // Get the video element to restore authoritative speed
+      const video = event.composedPath ? event.composedPath()[0] : event.target;
+
+      // RESTORE our authoritative value since external change already happened
+      if (video.vsc && this.config.settings.lastSpeed !== undefined) {
+        const authoritativeSpeed = this.config.settings.lastSpeed;
+        if (Math.abs(video.playbackRate - authoritativeSpeed) > 0.01) {
+          window.VSC.logger.info(`Restoring speed during cooldown from external ${video.playbackRate} to authoritative ${authoritativeSpeed}`);
+          video.playbackRate = authoritativeSpeed;
+        }
+      }
+
       event.stopImmediatePropagation();
       return;
     }
@@ -177,6 +190,7 @@ class EventManager {
 
     // Skip if no VSC controller attached
     if (!video.vsc) {
+      window.VSC.logger.debug('Skipping ratechange - no VSC controller attached');
       return;
     }
 
@@ -184,6 +198,26 @@ class EventManager {
     if (event.detail && event.detail.origin === 'videoSpeed') {
       // This is our change, don't process it again
       window.VSC.logger.debug('Ignoring extension-originated rate change');
+      return;
+    }
+
+    // Force last saved speed mode - restore authoritative speed for ANY external change
+    if (this.config.settings.forceLastSavedSpeed) {
+      if (event.detail && event.detail.origin === 'videoSpeed') {
+        video.playbackRate = Number(event.detail.speed);
+      } else {
+        const authoritativeSpeed = this.config.settings.lastSpeed || 1.0;
+        window.VSC.logger.info(`Force mode: restoring external ${video.playbackRate} to authoritative ${authoritativeSpeed}`);
+        video.playbackRate = authoritativeSpeed;
+      }
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    // Ignore external ratechanges during video initialization
+    if (video.readyState < 1) {
+      window.VSC.logger.debug('Ignoring external ratechange during video initialization (readyState < 1)');
+      event.stopImmediatePropagation();
       return;
     }
 
@@ -288,7 +322,7 @@ class EventManager {
 }
 
 // Cooldown duration (ms) for ratechange handling
-EventManager.COOLDOWN_MS = 50;
+EventManager.COOLDOWN_MS = 200;
 
 // Create singleton instance
 window.VSC.EventManager = EventManager;
