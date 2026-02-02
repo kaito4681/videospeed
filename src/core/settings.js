@@ -34,21 +34,18 @@ if (!window.VSC.VideoSpeedConfig) {
 
         // Apply loaded settings
         this.settings.lastSpeed = Number(storage.lastSpeed);
-        this.settings.displayKeyCode = Number(storage.displayKeyCode);
         this.settings.rememberSpeed = Boolean(storage.rememberSpeed);
         this.settings.forceLastSavedSpeed = Boolean(storage.forceLastSavedSpeed);
         this.settings.audioBoolean = Boolean(storage.audioBoolean);
-        this.settings.enabled = Boolean(storage.enabled);
         this.settings.startHidden = Boolean(storage.startHidden);
         this.settings.controllerOpacity = Number(storage.controllerOpacity);
         this.settings.controllerButtonSize = Number(storage.controllerButtonSize);
-        this.settings.blacklist = String(storage.blacklist);
         this.settings.logLevel = Number(
           storage.logLevel || window.VSC.Constants.DEFAULT_SETTINGS.logLevel
         );
 
         // Ensure display binding exists (for upgrades)
-        this.ensureDisplayBinding(storage);
+        this.ensureDisplayBinding();
 
         // Update logger verbosity
         window.VSC.logger.setVerbosity(this.settings.logLevel);
@@ -153,14 +150,13 @@ if (!window.VSC.VideoSpeedConfig) {
 
     /**
      * Ensure display binding exists in key bindings
-     * @param {Object} storage - Storage object  
      * @private
      */
-    ensureDisplayBinding(storage) {
+    ensureDisplayBinding() {
       if (this.settings.keyBindings.filter((x) => x.action === 'display').length === 0) {
         this.settings.keyBindings.push({
           action: 'display',
-          key: Number(storage.displayKeyCode) || 86,
+          key: 86, // V
           value: 0,
           force: false,
           predefined: true,
