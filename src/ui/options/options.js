@@ -321,18 +321,21 @@ async function save_options() {
       blacklist: blacklist.replace(window.VSC.Constants.regStrip, "")
     };
 
-    // Save with optimistic UI (like old version)
-    await window.VSC.videoSpeedConfig.save(settingsToSave);
+    const ok = await window.VSC.videoSpeedConfig.save(settingsToSave);
 
-    status.textContent = "Options saved";
-    status.classList.add("success");
+    if (ok) {
+      status.textContent = "Options saved";
+      status.classList.add("success");
+    } else {
+      status.textContent = "Error: failed to save options to storage";
+      status.classList.add("error");
+    }
     setTimeout(function () {
       status.textContent = "";
-      status.classList.remove("show", "success");
-    }, 2000);
+      status.classList.remove("show", "success", "error");
+    }, ok ? 2000 : 3000);
 
   } catch (error) {
-    // Only show error for actual storage failures
     console.error("Failed to save options:", error);
     status.textContent = "Error saving options: " + error.message;
     status.classList.add("show", "error");
@@ -467,8 +470,8 @@ async function restore_defaults() {
       window.VSC.videoSpeedConfig = new window.VSC.VideoSpeedConfig();
     }
 
-    // Then save fresh defaults
-    await window.VSC.videoSpeedConfig.save(window.VSC.Constants.DEFAULT_SETTINGS);
+    const ok = await window.VSC.videoSpeedConfig.save(window.VSC.Constants.DEFAULT_SETTINGS);
+    if (!ok) throw new Error('failed to write defaults to storage');
 
     // Remove custom shortcuts from UI
     document
