@@ -142,10 +142,10 @@ async function runTests() {
       'unit/content/inject.test.js',
       'unit/content/hydration-fix.test.js',
       'unit/content/content-entry.test.js',
-      'unit/content/injection-bridge.test.js',
       'unit/utils/recursive-shadow-dom.test.js',
       'unit/utils/blacklist-regex.test.js',
-      'unit/utils/event-manager.test.js'
+      'unit/utils/event-manager.test.js',
+      'unit/content/injection-bridge.test.js'
     ];
   } else if (testType === 'integration') {
     testFiles = [
@@ -169,14 +169,16 @@ async function runTests() {
       'unit/content/inject.test.js',
       'unit/content/hydration-fix.test.js',
       'unit/content/content-entry.test.js',
-      'unit/content/injection-bridge.test.js',
       'unit/utils/recursive-shadow-dom.test.js',
       'unit/utils/blacklist-regex.test.js',
       'unit/utils/event-manager.test.js',
       'integration/module-integration.test.js',
       'integration/ui-to-storage-flow.test.js',
       'integration/state-manager-integration.test.js',
-      'integration/blacklist-blocking.test.js'
+      'integration/blacklist-blocking.test.js',
+      // injection-bridge must run last: its module import permanently registers
+      // window message listeners that interfere with subsequent test suites
+      'unit/content/injection-bridge.test.js'
     ];
   }
 
