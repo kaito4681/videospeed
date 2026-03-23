@@ -11,6 +11,54 @@ if (!window.VSC.VideoSpeedConfig) {
       this.pendingSave = null;
       this.saveTimer = null;
       this.SAVE_DELAY = 1000; // 1 second
+      this._loaded = false;
+      // Tracks the last speed value we wrote to storage, so the onChanged
+      // listener can distinguish our own echo from a genuine external write.
+      this._lastWrittenSpeed = null;
+
+      // Keep in-memory settings fresh when other contexts write to storage.
+      // This prevents the stale-read problem where e.g. the options page holds
+      // an old lastSpeed while the content script has already updated it.
+      this._setupStorageListener();
+    }
+
+    /**
+     * Listen for storage changes from other contexts and update in-memory state.
+     * @private
+     */
+    _setupStorageListener() {
+      try {
+        window.VSC.StorageManager.onChanged((changes) => {
+          for (const [key, change] of Object.entries(changes)) {
+            if (!(key in this.settings) || change.newValue === undefined) continue;
+
+            // Self-echo guard: skip our own debounced speed write echoing back.
+            // Without this, the echo reverts in-memory state and mis-cancels timers.
+            if (key === 'lastSpeed') {
+              const isSelfEcho = this._lastWrittenSpeed !== null
+                  && change.newValue === this._lastWrittenSpeed;
+              this._lastWrittenSpeed = null; // always clear — stale token is worse than missing one
+              if (isSelfEcho) continue;
+            }
+
+            this.settings[key] = change.newValue;
+
+            // External lastSpeed write while we have a pending debounce:
+            // cancel our stale timer — the external value is more recent.
+            if (key === 'lastSpeed' && this.saveTimer) {
+              clearTimeout(this.saveTimer);
+              this.saveTimer = null;
+              this.pendingSave = null;
+            }
+
+            window.VSC.logger.debug(`Settings updated from storage change: ${key}`);
+          }
+        });
+      } catch (e) {
+        // StorageManager may not be fully available yet (e.g. during tests).
+        // Non-fatal — the listener just won't be active.
+        window.VSC.logger.debug(`Could not set up storage change listener: ${e.message}`);
+      }
     }
 
     /**
@@ -21,6 +69,9 @@ if (!window.VSC.VideoSpeedConfig) {
       try {
         // Use StorageManager which handles both contexts automatically
         const storage = await window.VSC.StorageManager.get(window.VSC.Constants.DEFAULT_SETTINGS);
+        // Storage read complete — save() is now safe (we have real data, not defaults).
+        // Set before keyBindings init below, which calls save() internally.
+        this._loaded = true;
 
         // Handle key bindings migration/initialization
         this.settings.keyBindings =
@@ -60,48 +111,77 @@ if (!window.VSC.VideoSpeedConfig) {
 
     /**
      * Save settings to Chrome storage
-     * @param {Object} newSettings - Settings to save
-     * @returns {Promise<void>}
+     *
+     * IMPORTANT: Only the keys present in newSettings are written to storage.
+     * This avoids the "stale full-blob write" race condition where two contexts
+     * (e.g. options page + content script) each hold their own in-memory copy
+     * and overwrite each other's changes.  chrome.storage.sync.set({key: val})
+     * atomically merges — it updates only the supplied keys and leaves the
+     * rest untouched.
+     *
+     * In-memory settings are updated immediately regardless of persistence
+     * outcome — the current session should always reflect the user's intent.
+     * Returns false only when the storage write observably fails (options page
+     * context with direct chrome.storage access). In page context, the
+     * postMessage bridge is fire-and-forget so failures are invisible here.
+     *
+     * @param {Object} newSettings - Settings to save (only these keys are written)
+     * @returns {Promise<boolean>} true if persisted (or debounced), false on storage failure
      */
     async save(newSettings = {}) {
-      try {
-        // Update in-memory settings immediately
-        this.settings = { ...this.settings, ...newSettings };
+      const keys = Object.keys(newSettings);
+      if (keys.length === 0) return true;
 
-        // Check if this is a speed-only update that should be debounced
-        const keys = Object.keys(newSettings);
-        if (keys.length === 1 && keys[0] === 'lastSpeed') {
-          // Debounce speed saves
-          this.pendingSave = newSettings.lastSpeed;
-          
-          if (this.saveTimer) {
-            clearTimeout(this.saveTimer);
-          }
-          
-          this.saveTimer = setTimeout(async () => {
-            const speedToSave = this.pendingSave;
-            this.pendingSave = null;
-            this.saveTimer = null;
-            
-            await window.VSC.StorageManager.set({ ...this.settings, lastSpeed: speedToSave });
+      // Guard: refuse to write before load() has read from storage.
+      // Without this, a save() during initialization writes DEFAULT_SETTINGS
+      // to storage, silently clobbering the user's real persisted values.
+      if (!this._loaded) {
+        window.VSC.logger.error('save() called before load() — refusing to overwrite user data with defaults');
+        return false;
+      }
+
+      // Update in-memory settings immediately
+      this.settings = { ...this.settings, ...newSettings };
+
+      // Check if this is a speed-only update that should be debounced
+      if (keys.length === 1 && keys[0] === 'lastSpeed') {
+        this.pendingSave = newSettings.lastSpeed;
+
+        if (this.saveTimer) {
+          clearTimeout(this.saveTimer);
+        }
+
+        this.saveTimer = setTimeout(async () => {
+          const speedToSave = this.pendingSave;
+          this.pendingSave = null;
+          this.saveTimer = null;
+
+          this._lastWrittenSpeed = speedToSave;
+          try {
+            await window.VSC.StorageManager.set({ lastSpeed: speedToSave });
             window.VSC.logger.info('Debounced speed setting saved successfully');
-          }, this.SAVE_DELAY);
-          
-          return;
-        }
+          } catch (error) {
+            this._lastWrittenSpeed = null;
+            window.VSC.logger.error(`Failed to persist speed: ${error.message}`);
+          }
+        }, this.SAVE_DELAY);
 
-        // Immediate save for all other settings
-        await window.VSC.StorageManager.set(this.settings);
+        return true; // in-memory updated, persistence is deferred
+      }
 
-        // Update logger verbosity if logLevel was changed
-        if (newSettings.logLevel !== undefined) {
-          window.VSC.logger.setVerbosity(this.settings.logLevel);
-        }
-
-        window.VSC.logger.info('Settings saved successfully');
+      try {
+        await window.VSC.StorageManager.set(newSettings);
       } catch (error) {
         window.VSC.logger.error(`Failed to save settings: ${error.message}`);
+        return false;
       }
+
+      if (newSettings.logLevel !== undefined) {
+        window.VSC.logger.setVerbosity(this.settings.logLevel);
+      }
+
+      window.VSC.logger.info('Settings saved successfully');
+      return true;
     }
 
     /**

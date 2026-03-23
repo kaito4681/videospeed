@@ -136,6 +136,7 @@ async function runTests() {
       'unit/core/icon-integration.test.js',
       'unit/core/keyboard-shortcuts-saving.test.js',
       'unit/core/f-keys.test.js',
+      'unit/core/settings-race-condition.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
       'unit/content/inject.test.js',
@@ -143,7 +144,8 @@ async function runTests() {
       'unit/content/content-entry.test.js',
       'unit/utils/recursive-shadow-dom.test.js',
       'unit/utils/blacklist-regex.test.js',
-      'unit/utils/event-manager.test.js'
+      'unit/utils/event-manager.test.js',
+      'unit/content/injection-bridge.test.js'
     ];
   } else if (testType === 'integration') {
     testFiles = [
@@ -161,6 +163,7 @@ async function runTests() {
       'unit/core/icon-integration.test.js',
       'unit/core/keyboard-shortcuts-saving.test.js',
       'unit/core/f-keys.test.js',
+      'unit/core/settings-race-condition.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
       'unit/content/inject.test.js',
@@ -172,7 +175,10 @@ async function runTests() {
       'integration/module-integration.test.js',
       'integration/ui-to-storage-flow.test.js',
       'integration/state-manager-integration.test.js',
-      'integration/blacklist-blocking.test.js'
+      'integration/blacklist-blocking.test.js',
+      // injection-bridge must run last: its module import permanently registers
+      // window message listeners that interfere with subsequent test suites
+      'unit/content/injection-bridge.test.js'
     ];
   }
 

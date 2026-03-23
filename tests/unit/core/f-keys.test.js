@@ -35,6 +35,7 @@ runner.afterEach(() => {
 
 runner.test('F13-F24 keys should be valid key bindings', async () => {
   const config = new window.VSC.VideoSpeedConfig();
+  await config.load();
 
   // Test saving F13-F24 key bindings
   const fKeyBindings = [];
@@ -62,6 +63,7 @@ runner.test('F13-F24 keys should be valid key bindings', async () => {
 
 runner.test('Special keys beyond standard range should be accepted', async () => {
   const config = new window.VSC.VideoSpeedConfig();
+  await config.load();
 
   // Test various special key codes that might exist on different keyboards
   const specialKeys = [
