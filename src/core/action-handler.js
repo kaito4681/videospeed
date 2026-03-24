@@ -101,17 +101,16 @@ class ActionHandler {
         }
 
         controller.classList.toggle('vsc-hidden');
+        // vsc-manual means "user has expressed intent about this controller's
+        // visibility." Set on first toggle, never cleared for the lifetime of
+        // the controller. This protects against YouTube autohide overriding
+        // the user's show intent, and prevents flash from overriding hide intent.
+        controller.classList.add('vsc-manual');
 
         if (controller.classList.contains('vsc-hidden')) {
-          // User is hiding — mark as manual, remove flash override
-          controller.classList.add('vsc-manual');
+          // User is hiding — also remove any pending flash override
           controller.classList.remove('vsc-show');
-        } else if (!this.config.settings.startHidden) {
-          // User is showing and startHidden=false — clear manual flag
-          // Controller returns to fully automatic behavior
-          controller.classList.remove('vsc-manual');
         }
-        // When startHidden=true and showing: vsc-manual stays (permits future flashing)
         break;
       }
 
@@ -297,10 +296,16 @@ class ActionHandler {
    * @param {number} duration - Duration in ms (default 2000)
    */
   flashController(controller, duration) {
-    // When startHidden is enabled, only flash if user has manually shown
-    // this controller (vsc-manual flag). This prevents unwanted appearances.
+    // Don't flash when user has explicitly hidden this controller.
+    // vsc-manual + vsc-hidden = "user pressed V to hide" — respect that.
+    if (controller.classList.contains('vsc-manual') && controller.classList.contains('vsc-hidden')) {
+      window.VSC.logger.debug('flashController skipped: user manually hid controller');
+      return;
+    }
+
+    // startHidden without user interaction: don't flash (no user intent yet)
     if (this.config.settings.startHidden && !controller.classList.contains('vsc-manual')) {
-      window.VSC.logger.debug('flashController skipped: startHidden and no vsc-manual');
+      window.VSC.logger.debug('flashController skipped: startHidden and no user interaction');
       return;
     }
 
