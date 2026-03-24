@@ -53,9 +53,8 @@ class VideoSpeedExtension {
       this.logger.info('Video Speed Controller initialized successfully');
       this.initialized = true;
     } catch (error) {
-      console.error(`❌ Failed to initialize Video Speed Controller: ${error.message}`);
-      console.error('📋 Full error details:', error);
-      console.error('🔍 Error stack:', error.stack);
+      this.logger.error(`Failed to initialize Video Speed Controller: ${error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
     }
   }
 
@@ -242,9 +241,46 @@ class VideoSpeedExtension {
         shouldStartHidden
       );
     } catch (error) {
-      console.error('💥 Failed to attach controller to video:', error);
       this.logger.error(`Failed to attach controller to video: ${error.message}`);
     }
+  }
+
+  /**
+   * Tear down the extension: remove all controllers, stop observers, clean up listeners.
+   * Counterpart to initialize() — leaves the page as if VSC was never active.
+   */
+  teardown() {
+    if (!this.initialized) return;
+
+    this.logger.info('Tearing down Video Speed Controller');
+
+    // Remove all controllers from tracked media elements
+    const videos = window.VSC.stateManager ? window.VSC.stateManager.getAllMediaElements() : [];
+    for (const video of videos) {
+      if (video.vsc) video.vsc.remove();
+    }
+
+    // Stop observing DOM for new videos
+    if (this.mutationObserver) {
+      this.mutationObserver.stop();
+      this.mutationObserver = null;
+    }
+
+    // Remove keyboard/ratechange listeners
+    if (this.eventManager) {
+      this.eventManager.cleanup();
+      this.eventManager = null;
+    }
+
+    // Clean up site-specific handlers
+    if (this.siteHandlerManager) {
+      this.siteHandlerManager.cleanup();
+    }
+
+    this.actionHandler = null;
+    this.mediaObserver = null;
+    this.initialized = false;
+    window.VSC.initialized = false;
   }
 
   /**
@@ -346,6 +382,14 @@ class VideoSpeedExtension {
             extension.actionHandler.runAction('display', null, null);
           }
           break;
+
+        case window.VSC.Constants.MESSAGE_TYPES.TEARDOWN:
+          extension.teardown();
+          break;
+
+        case window.VSC.Constants.MESSAGE_TYPES.REINIT:
+          extension.initialize();
+          break;
       }
     }
   });
@@ -358,7 +402,6 @@ class VideoSpeedExtension {
 
   // Auto-initialize
   extension.initialize().catch((error) => {
-    console.error(`Extension initialization failed: ${error.message}`);
     window.VSC.logger.error(`Extension initialization failed: ${error.message}`);
   });
 
