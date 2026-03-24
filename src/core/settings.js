@@ -75,7 +75,8 @@ if (!window.VSC.VideoSpeedConfig) {
 
         // Handle key bindings migration/initialization
         this.settings.keyBindings =
-          storage.keyBindings || window.VSC.Constants.DEFAULT_SETTINGS.keyBindings;
+          (storage.keyBindings || window.VSC.Constants.DEFAULT_SETTINGS.keyBindings)
+            .map(VideoSpeedConfig.normalizeKeyBinding);
 
         if (!storage.keyBindings || storage.keyBindings.length === 0) {
           window.VSC.logger.info('First initialization - setting up default key bindings');
@@ -94,9 +95,6 @@ if (!window.VSC.VideoSpeedConfig) {
         this.settings.logLevel = Number(
           storage.logLevel || window.VSC.Constants.DEFAULT_SETTINGS.logLevel
         );
-
-        // Ensure display binding exists (for upgrades)
-        this.ensureDisplayBinding();
 
         // Update logger verbosity
         window.VSC.logger.setVerbosity(this.settings.logLevel);
@@ -229,20 +227,31 @@ if (!window.VSC.VideoSpeedConfig) {
     }
 
     /**
-     * Ensure display binding exists in key bindings
+     * Normalize a key binding's modifiers to strict booleans.
+     * Strips the modifiers object entirely when all values are falsy.
+     * Defensive against corrupt storage data (e.g., modifiers: { shift: 1 }).
+     * @param {Object} binding
+     * @returns {Object} Sanitized binding (shallow copy)
      * @private
      */
-    ensureDisplayBinding() {
-      if (this.settings.keyBindings.filter((x) => x.action === 'display').length === 0) {
-        this.settings.keyBindings.push({
-          action: 'display',
-          key: 86, // V
-          value: 0,
-          force: false,
-          predefined: true,
-        });
+    static normalizeKeyBinding(binding) {
+      if (!binding || !binding.modifiers) return binding;
+      const m = binding.modifiers;
+      const normalized = {
+        shift: Boolean(m.shift),
+        ctrl: Boolean(m.ctrl),
+        alt: Boolean(m.alt),
+        meta: Boolean(m.meta),
+      };
+      const result = { ...binding };
+      if (normalized.shift || normalized.ctrl || normalized.alt || normalized.meta) {
+        result.modifiers = normalized;
+      } else {
+        delete result.modifiers;
       }
+      return result;
     }
+
   }
 
   // Create singleton instance

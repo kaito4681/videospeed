@@ -178,10 +178,10 @@ export function createMockEvent(type, properties = {}) {
 }
 
 /**
- * Create a mock keyboard event
+ * Create a mock keyboard event with v2 identity fields.
  * @param {string} type - Event type (keydown, keyup, keypress)
  * @param {number} keyCode - Key code
- * @param {Object} options - Additional event options
+ * @param {Object} options - Additional event options (code, key, ctrlKey, altKey, shiftKey, metaKey, isComposing, etc.)
  * @returns {KeyboardEvent} Mock keyboard event
  */
 export function createMockKeyboardEvent(type, keyCode, options = {}) {
@@ -189,11 +189,26 @@ export function createMockKeyboardEvent(type, keyCode, options = {}) {
     bubbles: true,
     cancelable: true,
     keyCode,
+    code: options.code || '',
+    key: options.key || '',
+    ctrlKey: options.ctrlKey || false,
+    altKey: options.altKey || false,
+    shiftKey: options.shiftKey || false,
+    metaKey: options.metaKey || false,
     ...options,
   });
 
-  // Add keyCode property for older compatibility
+  // Override read-only properties for testing
   Object.defineProperty(event, 'keyCode', { value: keyCode });
+  if (options.code !== undefined) {
+    Object.defineProperty(event, 'code', { value: options.code });
+  }
+  if (options.key !== undefined) {
+    Object.defineProperty(event, 'key', { value: options.key });
+  }
+  if (options.isComposing !== undefined) {
+    Object.defineProperty(event, 'isComposing', { value: options.isComposing });
+  }
 
   return event;
 }

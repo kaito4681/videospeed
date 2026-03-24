@@ -114,25 +114,24 @@ h3+.row {
   gap: 8px;
   align-items: center;
   display: grid;
-  grid-template-columns: 180px 75px 75px;
+  grid-template-columns: 180px auto 75px;
+  justify-content: start;
   position: relative;
   padding-left: 44px;
 }
 
 /* When advanced features are shown */
 .row.customs:has(.customForce) {
-  grid-template-columns: 180px 75px 75px 200px;
+  grid-template-columns: 180px auto 75px 200px;
 }
-
-
 
 /* Special handling for rows without value inputs */
 .row.customs:has(input[style*="display: none"]) {
-  grid-template-columns: 180px 75px 0;
+  grid-template-columns: 180px auto 0;
 }
 
 .row.customs:has(input[style*="display: none"]):has(.customForce) {
-  grid-template-columns: 180px 75px 0 200px;
+  grid-template-columns: 180px auto 0 200px;
 }
 
 .row.customs:has(input[style*="display: none"]) .customValue {
@@ -246,6 +245,8 @@ input[type="number"] {
 .customKey {
   color: transparent;
   text-shadow: 0 0 0 var(--md-on-surface);
+  width: 75px;
+  min-width: 75px;
 }
 
 /* Specific input widths */

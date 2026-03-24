@@ -69,20 +69,19 @@ class VideoController {
 
   /**
    * Get target speed for video initialization and event restoration.
-   * When rememberSpeed is on, resume from persisted lastSpeed.
-   * When off, start fresh at 1.0 — the user opted out of persistence.
+   *
+   * Always uses in-memory lastSpeed when available — this provides session
+   * persistence (speed survives play/pause/seek events within the same page).
+   * The rememberSpeed setting controls cross-session STORAGE persistence only,
+   * not in-memory behavior.
+   *
    * @returns {number} Target speed
    * @private
    */
   getTargetSpeed() {
-    if (this.config.settings.rememberSpeed) {
-      const targetSpeed = this.config.settings.lastSpeed || 1.0;
-      window.VSC.logger.debug(`Remember mode: using lastSpeed ${targetSpeed}`);
-      return targetSpeed;
-    }
-
-    window.VSC.logger.debug('Non-persistent mode: starting at 1.0');
-    return 1.0;
+    const targetSpeed = this.config.settings.lastSpeed || 1.0;
+    window.VSC.logger.debug(`Using lastSpeed ${targetSpeed} (rememberSpeed=${this.config.settings.rememberSpeed})`);
+    return targetSpeed;
   }
 
   /**

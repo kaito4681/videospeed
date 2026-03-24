@@ -29,118 +29,181 @@ function debounce(func, wait) {
 
 var keyBindings = [];
 
-// Minimal blacklist - only keys that would interfere with form navigation
-const BLACKLISTED_KEYCODES = [
-  9,   // Tab - needed for keyboard navigation
-  16,  // Shift (alone)
-  17,  // Ctrl/Control (alone)
-  18,  // Alt (alone)
-  91,  // Meta/Windows/Command Left
-  92,  // Meta/Windows Right
-  93,  // Context Menu/Right Command
-  224  // Meta/Command (Firefox)
-];
-
+// TODO(v3): Remove keyCodeAliases once all bindings have displayKey field
+// and the legacy `key` integer field is dropped from the schema.
 var keyCodeAliases = {
-  0: "null",
-  null: "null",
-  undefined: "null",
-  32: "Space",
-  37: "Left",
-  38: "Up",
-  39: "Right",
-  40: "Down",
-  96: "Num 0",
-  97: "Num 1",
-  98: "Num 2",
-  99: "Num 3",
-  100: "Num 4",
-  101: "Num 5",
-  102: "Num 6",
-  103: "Num 7",
-  104: "Num 8",
-  105: "Num 9",
-  106: "Num *",
-  107: "Num +",
-  109: "Num -",
-  110: "Num .",
-  111: "Num /",
-  112: "F1",
-  113: "F2",
-  114: "F3",
-  115: "F4",
-  116: "F5",
-  117: "F6",
-  118: "F7",
-  119: "F8",
-  120: "F9",
-  121: "F10",
-  122: "F11",
-  123: "F12",
-  124: "F13",
-  125: "F14",
-  126: "F15",
-  127: "F16",
-  128: "F17",
-  129: "F18",
-  130: "F19",
-  131: "F20",
-  132: "F21",
-  133: "F22",
-  134: "F23",
-  135: "F24",
-  186: ";",
-  188: "<",
-  189: "-",
-  187: "+",
-  190: ">",
-  191: "/",
-  192: "~",
-  219: "[",
-  220: "\\",
-  221: "]",
-  222: "'"
+  0: "null", null: "null", undefined: "null",
+  32: "Space", 37: "Left", 38: "Up", 39: "Right", 40: "Down",
+  96: "Num 0", 97: "Num 1", 98: "Num 2", 99: "Num 3", 100: "Num 4",
+  101: "Num 5", 102: "Num 6", 103: "Num 7", 104: "Num 8", 105: "Num 9",
+  106: "Num *", 107: "Num +", 109: "Num -", 110: "Num .", 111: "Num /",
+  112: "F1", 113: "F2", 114: "F3", 115: "F4", 116: "F5", 117: "F6",
+  118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12",
+  124: "F13", 125: "F14", 126: "F15", 127: "F16", 128: "F17", 129: "F18",
+  130: "F19", 131: "F20", 132: "F21", 133: "F22", 134: "F23", 135: "F24",
+  186: ";", 188: "<", 189: "-", 187: "+", 190: ">", 191: "/", 192: "~",
+  219: "[", 220: "\\", 221: "]", 222: "'",
 };
 
+// Keyboard layout map — resolved once on page load, used for display labels
+let layoutMap = null;
+(async function initLayoutMap() {
+  try {
+    if (navigator.keyboard && navigator.keyboard.getLayoutMap) {
+      layoutMap = await navigator.keyboard.getLayoutMap();
+      // Re-render display labels if layout changes mid-session
+      navigator.keyboard.addEventListener('layoutchange', async () => {
+        layoutMap = await navigator.keyboard.getLayoutMap();
+      });
+    }
+  } catch (e) {
+    // getLayoutMap not available — fallback chain handles it
+  }
+})();
+
+/**
+ * Build a display string for a shortcut.
+ * @param {string} displayKey - event.key captured at recording time
+ * @param {Object} [modifiers] - {ctrl, alt, shift, meta} booleans
+ * @returns {string} e.g., "Ctrl + S", "Shift + P", "F10"
+ */
+function formatShortcutDisplay(displayKey, modifiers) {
+  if (!displayKey) return 'null';
+  const parts = [];
+  if (modifiers) {
+    if (modifiers.ctrl) parts.push('Ctrl');
+    if (modifiers.alt) parts.push('Alt');
+    if (modifiers.shift) parts.push('Shift');
+    if (modifiers.meta) parts.push('Meta');
+  }
+  // Capitalize single-character keys for display
+  const label = displayKey.length === 1 ? displayKey.toUpperCase() : displayKey;
+  parts.push(label);
+  return parts.join(' + ');
+}
+
+/**
+ * Resolve the best display label for a binding.
+ * Fallback chain: layoutMap → displayKey → keyCodeAliases → code → "null"
+ */
+function resolveDisplayLabel(binding) {
+  // Try layout map first (most accurate for current keyboard)
+  if (layoutMap && binding.code) {
+    const mapped = layoutMap.get(binding.code);
+    if (mapped) return formatShortcutDisplay(mapped, binding.modifiers);
+  }
+  // v2 binding with displayKey
+  if (binding.displayKey) {
+    return formatShortcutDisplay(binding.displayKey, binding.modifiers);
+  }
+  // v2 binding with code but no displayKey
+  if (binding.code) {
+    const derived = window.VSC.Constants.displayKeyFromCode(binding.code);
+    return formatShortcutDisplay(derived, binding.modifiers);
+  }
+  // Legacy v1 binding — fall back to keyCodeAliases
+  const kc = binding.keyCode ?? binding.key;
+  return keyCodeAliases[kc] ||
+    (kc >= 48 && kc <= 90 ? String.fromCharCode(kc) : `Key ${kc}`);
+}
+
+/**
+ * Auto-size a key input to fit chord labels like "Ctrl + Shift + S".
+ * Falls back to 75px minimum for simple keys.
+ */
+function autoSizeKeyInput(input) {
+  const minWidth = 75;
+  if (!input.value || input.value.length <= 3) {
+    input.style.width = minWidth + 'px';
+    return;
+  }
+  const span = document.createElement('span');
+  span.style.visibility = 'hidden';
+  span.style.position = 'absolute';
+  span.style.font = getComputedStyle(input).font;
+  span.style.whiteSpace = 'nowrap';
+  span.textContent = input.value;
+  document.body.appendChild(span);
+  const textWidth = span.offsetWidth;
+  document.body.removeChild(span);
+  input.style.width = Math.max(minWidth, textWidth + 26) + 'px';
+}
+
 function recordKeyPress(e) {
-  // Special handling for backspace and escape
-  if (e.keyCode === 8) {
-    // Clear input when backspace pressed
+  // Special handling for backspace and escape (via event.code)
+  if (e.code === 'Backspace') {
     e.target.value = "";
-    e.preventDefault();
-    e.stopPropagation();
-    return;
-  } else if (e.keyCode === 27) {
-    // When esc clicked, clear input
-    e.target.value = "null";
+    e.target.code = null;
     e.target.keyCode = null;
+    e.target.displayKey = null;
+    e.target.modifiers = undefined;
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  } else if (e.code === 'Escape') {
+    e.target.value = "null";
+    e.target.code = null;
+    e.target.keyCode = null;
+    e.target.displayKey = null;
+    e.target.modifiers = undefined;
     e.preventDefault();
     e.stopPropagation();
     return;
   }
 
-  // Block blacklisted keys
-  if (BLACKLISTED_KEYCODES.includes(e.keyCode)) {
+  // Block blacklisted codes
+  if (window.VSC.Constants.BLACKLISTED_CODES.has(e.code)) {
     e.preventDefault();
     e.stopPropagation();
     return;
   }
 
-  // Accept all other keys
-  // Use friendly name if available, otherwise show "Key {code}"
-  e.target.value = keyCodeAliases[e.keyCode] ||
-    (e.keyCode >= 48 && e.keyCode <= 90 ? String.fromCharCode(e.keyCode) : `Key ${e.keyCode}`);
+  // Capture v2 identity
+  e.target.code = e.code;
   e.target.keyCode = e.keyCode;
+  e.target.displayKey = e.key;
+
+  // Capture modifiers — only store object if any modifier is active
+  const hasMod = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
+  e.target.modifiers = hasMod ? {
+    ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey,
+  } : undefined;
+
+  // Display formatted shortcut
+  e.target.value = formatShortcutDisplay(e.key, e.target.modifiers);
+  autoSizeKeyInput(e.target);
+
+  // Show contextual warnings for problematic modifier combos
+  clearWarning(e.target);
+  if (e.ctrlKey && e.altKey) {
+    showWarning(e.target, 'This combination may conflict with AltGr input on some keyboard layouts.');
+  } else if (e.metaKey) {
+    showWarning(e.target, 'Some Cmd/Meta combinations are intercepted by the OS and may not work.');
+  }
 
   e.preventDefault();
   e.stopPropagation();
 }
 
+function showWarning(input, message) {
+  clearWarning(input);
+  const warn = document.createElement('span');
+  warn.className = 'shortcut-warning';
+  warn.textContent = message;
+  warn.style.cssText = 'display:block;color:#c57600;font-size:11px;margin-top:2px;';
+  input.parentNode.insertBefore(warn, input.nextSibling);
+}
+
+function clearWarning(input) {
+  const existing = input.parentNode.querySelector('.shortcut-warning');
+  if (existing) existing.remove();
+}
+
 function inputFilterNumbersOnly(e) {
-  var char = String.fromCharCode(e.keyCode);
-  if (!/[\d\.]$/.test(char) || !/^\d+(\.\d*)?$/.test(e.target.value + char)) {
-    e.preventDefault();
-    e.stopPropagation();
+  if ((e.inputType === 'insertText' || e.inputType === 'insertFromPaste') && e.data) {
+    if (!/^\d+(\.\d*)?$/.test(e.target.value + e.data)) {
+      e.preventDefault();
+    }
   }
 }
 
@@ -149,22 +212,34 @@ function inputFocus(e) {
 }
 
 function inputBlur(e) {
-  const keyCode = e.target.keyCode;
-  e.target.value = keyCodeAliases[keyCode] ||
-    (keyCode >= 48 && keyCode <= 90 ? String.fromCharCode(keyCode) : `Key ${keyCode}`);
+  // Reconstruct display from stored v2 fields, falling back to legacy
+  if (e.target.code) {
+    e.target.value = formatShortcutDisplay(
+      e.target.displayKey || window.VSC.Constants.displayKeyFromCode(e.target.code),
+      e.target.modifiers
+    );
+  } else if (e.target.code === null) {
+    e.target.value = 'null';
+  } else {
+    // Legacy fallback
+    const kc = e.target.keyCode;
+    e.target.value = keyCodeAliases[kc] ||
+      (kc >= 48 && kc <= 90 ? String.fromCharCode(kc) : `Key ${kc}`);
+  }
+  autoSizeKeyInput(e.target);
 }
 
-function updateShortcutInputText(inputId, keyCode) {
-  const input = document.getElementById(inputId);
-  input.value = keyCodeAliases[keyCode] ||
-    (keyCode >= 48 && keyCode <= 90 ? String.fromCharCode(keyCode) : `Key ${keyCode}`);
-  input.keyCode = keyCode;
-}
-
-function updateCustomShortcutInputText(inputItem, keyCode) {
-  inputItem.value = keyCodeAliases[keyCode] ||
-    (keyCode >= 48 && keyCode <= 90 ? String.fromCharCode(keyCode) : `Key ${keyCode}`);
-  inputItem.keyCode = keyCode;
+/**
+ * Populate a shortcut input element with binding data.
+ * Sets all v2 fields on the DOM element for round-trip through createKeyBindings.
+ */
+function setShortcutInput(input, binding) {
+  input.code = binding.code;
+  input.keyCode = binding.keyCode ?? binding.key;
+  input.displayKey = binding.displayKey;
+  input.modifiers = binding.modifiers;
+  input.value = resolveDisplayLabel(binding);
+  autoSizeKeyInput(input);
 }
 
 
@@ -212,19 +287,29 @@ function add_shortcut() {
 
 function createKeyBindings(item) {
   const action = item.querySelector(".customDo").value;
-  const key = item.querySelector(".customKey").keyCode;
+  const input = item.querySelector(".customKey");
   const value = Number(item.querySelector(".customValue").value);
   const forceElement = item.querySelector(".customForce");
-  const force = forceElement ? forceElement.value : "false";
-  const predefined = !!item.id; //item.id ? true : false;
+  const force = forceElement ? forceElement.value === 'true' : false;
+  const predefined = !!item.id;
 
-  keyBindings.push({
+  const binding = {
     action: action,
-    key: key,
+    code: input.code,                     // PRIMARY — event.code string
+    key: input.keyCode,                   // OLD field name — integer, downgrade compat
+    keyCode: input.keyCode,               // NEW field name — canonical legacy integer
+    displayKey: input.displayKey,         // display-friendly from event.key
     value: value,
     force: force,
-    predefined: predefined
-  });
+    predefined: predefined,
+  };
+
+  // Only include modifiers when at least one is true
+  if (input.modifiers) {
+    binding.modifiers = input.modifiers;
+  }
+
+  keyBindings.push(binding);
 }
 
 // Validates settings before saving
@@ -287,12 +372,6 @@ async function save_options() {
     Array.from(document.querySelectorAll(".customs")).forEach((item) =>
       createKeyBindings(item)
     );
-
-    // Ensure force values are boolean, not string
-    keyBindings = keyBindings.map(binding => ({
-      ...binding,
-      force: Boolean(binding.force === "true" || binding.force === true)
-    }));
 
     var rememberSpeed = document.getElementById("rememberSpeed").checked;
     var forceLastSavedSpeed = document.getElementById("forceLastSavedSpeed").checked;
@@ -370,16 +449,11 @@ async function restore_options() {
     // Process key bindings
     const keyBindings = storage.keyBindings || window.VSC.Constants.DEFAULT_SETTINGS.keyBindings;
 
-
     for (let i in keyBindings) {
       var item = keyBindings[i];
 
       if (item.predefined) {
         // Handle predefined shortcuts
-        if (item["action"] == "display" && typeof item["key"] === "undefined") {
-          item["key"] = 86; // V
-        }
-
         if (window.VSC.Constants.CUSTOM_ACTIONS_NO_VALUES.includes(item["action"])) {
           const valueInput = document.querySelector("#" + item["action"] + " .customValue");
           if (valueInput) {
@@ -391,9 +465,8 @@ async function restore_options() {
         const valueInput = document.querySelector("#" + item["action"] + " .customValue");
         const forceInput = document.querySelector("#" + item["action"] + " .customForce");
 
-
         if (keyInput) {
-          updateCustomShortcutInputText(keyInput, item["key"]);
+          setShortcutInput(keyInput, item);
         }
         if (valueInput) {
           valueInput.value = item["value"];
@@ -414,10 +487,7 @@ async function restore_options() {
           }
         }
 
-        updateCustomShortcutInputText(
-          dom.querySelector(".customKey"),
-          item["key"]
-        );
+        setShortcutInput(dom.querySelector(".customKey"), item);
         dom.querySelector(".customValue").value = item["value"];
         // If force value exists in settings but element doesn't exist, create it
         if (item["force"] !== undefined && !dom.querySelector(".customForce")) {
@@ -470,7 +540,8 @@ async function restore_defaults() {
       window.VSC.videoSpeedConfig = new window.VSC.VideoSpeedConfig();
     }
 
-    const ok = await window.VSC.videoSpeedConfig.save(window.VSC.Constants.DEFAULT_SETTINGS);
+    const defaults = { ...window.VSC.Constants.DEFAULT_SETTINGS, schemaVersion: 2 };
+    const ok = await window.VSC.videoSpeedConfig.save(defaults);
     if (!ok) throw new Error('failed to write defaults to storage');
 
     // Remove custom shortcuts from UI
@@ -607,7 +678,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     funcName(event);
   }
 
-  document.addEventListener("keypress", (event) => {
+  document.addEventListener("beforeinput", (event) => {
     eventCaller(event, "customValue", inputFilterNumbersOnly);
   });
   document.addEventListener("focus", (event) => {

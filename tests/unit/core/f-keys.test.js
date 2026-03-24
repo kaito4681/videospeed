@@ -133,10 +133,13 @@ runner.test('EventManager should handle F-keys correctly', async () => {
   const eventManager = new window.VSC.EventManager(config, actionHandler);
   actionHandler.eventManager = eventManager;
 
-  // Add F13 key binding
+  // Add F13 key binding (v2 schema with code)
   config.settings.keyBindings = [{
     action: 'faster',
-    key: 124, // F13
+    code: 'F13',
+    key: 124,
+    keyCode: 124,
+    displayKey: 'F13',
     value: 0.1,
     force: false,
     predefined: false
@@ -182,9 +185,10 @@ runner.test('EventManager should handle F-keys correctly', async () => {
 
   // Trigger F13 key
   const f13Event = {
-    keyCode: 124,
+    code: 'F13', key: 'F13', keyCode: 124,
     target: mockTarget,
-    getModifierState: () => false,
+    ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+    isComposing: false, timeStamp: 1000,
     preventDefault: () => { },
     stopPropagation: () => { }
   };
