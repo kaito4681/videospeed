@@ -25,9 +25,10 @@ vsc-controller {
   top: 40px;
 }
 
-/* YouTube embedded player */
+/* YouTube embedded player — controller inserted into #player (above the overlay) */
 /* e.g. https://www.igvita.com/2012/09/12/web-fonts-performance-making-pretty-fast/ */
-.html5-video-player:not(.ytp-hide-info-bar) vsc-controller {
+.html5-video-player:not(.ytp-hide-info-bar) vsc-controller,
+#player > vsc-controller {
   position: relative;
   top: 60px;
 }
