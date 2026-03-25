@@ -47,7 +47,7 @@ global.chrome = {
           controllerOpacity: 0.3,
           controllerButtonSize: 14,
           blacklist: "www.instagram.com\nx.com",
-          logLevel: 3
+          logLevel: 1
         };
         setTimeout(() => callback(mockData), 10);
       },
@@ -136,6 +136,7 @@ async function runTests() {
       'unit/core/icon-integration.test.js',
       'unit/core/keyboard-shortcuts-saving.test.js',
       'unit/core/f-keys.test.js',
+      'unit/core/migration.test.js',
       'unit/core/settings-race-condition.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
@@ -145,8 +146,10 @@ async function runTests() {
       'unit/utils/recursive-shadow-dom.test.js',
       'unit/utils/blacklist-regex.test.js',
       'unit/utils/event-manager.test.js',
+      'unit/utils/event-manager-matching.test.js',
       'unit/utils/logger.test.js',
       'unit/ui/drag-and-reset.test.js',
+      'unit/ui/options-recording.test.js',
       'unit/content/injection-bridge.test.js'
     ];
   } else if (testType === 'integration') {
@@ -165,6 +168,7 @@ async function runTests() {
       'unit/core/icon-integration.test.js',
       'unit/core/keyboard-shortcuts-saving.test.js',
       'unit/core/f-keys.test.js',
+      'unit/core/migration.test.js',
       'unit/core/settings-race-condition.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
@@ -174,6 +178,7 @@ async function runTests() {
       'unit/utils/recursive-shadow-dom.test.js',
       'unit/utils/blacklist-regex.test.js',
       'unit/utils/event-manager.test.js',
+      'unit/utils/event-manager-matching.test.js',
       'unit/utils/logger.test.js',
       'unit/ui/drag-and-reset.test.js',
       'integration/module-integration.test.js',

@@ -227,9 +227,10 @@ runner.test('ActionHandler should work with mark/jump key bindings', async () =>
 
   // Simulate pressing M key to set mark
   eventManager.handleKeydown({
-    keyCode: 77,
+    code: 'KeyM', key: 'm', keyCode: 77,
     target: document.body,
-    getModifierState: () => false,
+    ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+    isComposing: false, timeStamp: 1000,
     preventDefault: () => { },
     stopPropagation: () => { }
   });
@@ -240,9 +241,10 @@ runner.test('ActionHandler should work with mark/jump key bindings', async () =>
 
   // Simulate pressing J key to jump to mark
   eventManager.handleKeydown({
-    keyCode: 74,
+    code: 'KeyJ', key: 'j', keyCode: 74,
     target: document.body,
-    getModifierState: () => false,
+    ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+    isComposing: false, timeStamp: 2000,
     preventDefault: () => { },
     stopPropagation: () => { }
   });
@@ -268,12 +270,12 @@ runner.test('ActionHandler should toggle display visibility', async () => {
   assert.true(controller.classList.contains('vsc-hidden'));
   assert.true(controller.classList.contains('vsc-manual'));
 
-  // Second toggle - should show
+  // Second toggle - should show, vsc-manual cleared (startHidden=false)
   actionHandler.runAction('display', null, null);
   assert.false(controller.classList.contains('vsc-hidden'));
-  assert.true(controller.classList.contains('vsc-manual'));
+  assert.false(controller.classList.contains('vsc-manual'));
 
-  // Third toggle - should hide again
+  // Third toggle - should hide again, vsc-manual re-added
   actionHandler.runAction('display', null, null);
   assert.true(controller.classList.contains('vsc-hidden'));
   assert.true(controller.classList.contains('vsc-manual'));
@@ -394,62 +396,55 @@ runner.test('adjustSpeed should handle relative speed changes', async () => {
   assert.equal(mockVideo.playbackRate, 16); // Clamped to max
 });
 
-runner.test('adjustSpeed should handle external changes with force mode', async () => {
+runner.test('adjustSpeed should not corrupt lastSpeed on external changes', async () => {
   const config = window.VSC.videoSpeedConfig;
   await config.load();
-
-  // Reset config state for clean test
-  config.settings.rememberSpeed = false;
+  config.settings.rememberSpeed = true;
 
   const eventManager = new window.VSC.EventManager(config, null);
   const actionHandler = new window.VSC.ActionHandler(config, eventManager);
 
-  const mockVideo = createMockVideo({ playbackRate: 1.0 });
-  mockVideo.vsc = {
-    div: mockDOM.container,
-    speedIndicator: { textContent: '1.00' }
-  };
+  const mockVideo = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
 
-  // Set initial user preference
-  config.settings.lastSpeed = 1.5;
-  config.settings.forceLastSavedSpeed = true;
-  config.settings.rememberSpeed = true; // Global mode for force test
+  // Set user preference via internal change
+  actionHandler.adjustSpeed(mockVideo, 1.5, { source: 'internal' });
+  assert.equal(config.settings.lastSpeed, 1.5);
 
-  // External change should be rejected in force mode
+  // External change applies to playback but must NOT update lastSpeed
+  // (forceLastSavedSpeed enforcement happens upstream in event-manager fight detection)
   actionHandler.adjustSpeed(mockVideo, 2.0, { source: 'external' });
-  assert.equal(mockVideo.playbackRate, 1.5); // Restored to user preference
+  assert.equal(mockVideo.playbackRate, 2.0); // External change reaches video
+  assert.equal(config.settings.lastSpeed, 1.5); // But lastSpeed is preserved
 
-  // Internal change should be allowed
-  actionHandler.adjustSpeed(mockVideo, 2.0, { source: 'internal' });
-  assert.equal(mockVideo.playbackRate, 2.0);
+  // Internal change should update both
+  actionHandler.adjustSpeed(mockVideo, 2.5, { source: 'internal' });
+  assert.equal(mockVideo.playbackRate, 2.5);
+  assert.equal(config.settings.lastSpeed, 2.5);
 });
 
-runner.test('getPreferredSpeed should return global lastSpeed', async () => {
+runner.test('getPreferredSpeed should return global lastSpeed when rememberSpeed is on', async () => {
   const config = window.VSC.videoSpeedConfig;
   await config.load();
+  config.settings.rememberSpeed = true;
 
   const eventManager = new window.VSC.EventManager(config, null);
   const actionHandler = new window.VSC.ActionHandler(config, eventManager);
-
-  const mockVideo = createMockVideo({
-    playbackRate: 1.0,
-    currentSrc: 'https://example.com/video1.mp4'
-  });
 
   // Test with set lastSpeed
   config.settings.lastSpeed = 1.75;
-  assert.equal(actionHandler.getPreferredSpeed(mockVideo), 1.75);
+  assert.equal(actionHandler.getPreferredSpeed(), 1.75);
 
   // Test fallback when no lastSpeed
   config.settings.lastSpeed = null;
-  assert.equal(actionHandler.getPreferredSpeed(mockVideo), 1.0);
+  assert.equal(actionHandler.getPreferredSpeed(), 1.0);
 
-  // Different video should return same global speed
-  const mockVideo2 = createMockVideo({
-    currentSrc: 'https://example.com/video2.mp4'
-  });
+  // Different lastSpeed should be reflected
   config.settings.lastSpeed = 2.5;
-  assert.equal(actionHandler.getPreferredSpeed(mockVideo2), 2.5);
+  assert.equal(actionHandler.getPreferredSpeed(), 2.5);
+
+  // When rememberSpeed is off, should return 1.0
+  config.settings.rememberSpeed = false;
+  assert.equal(actionHandler.getPreferredSpeed(), 1.0);
 });
 
 runner.test('adjustSpeed should validate input properly', async () => {
@@ -635,20 +630,17 @@ runner.test('adjustSpeed should handle multiple source types comprehensively', a
   // Test default source (should be 'internal')
   actionHandler.adjustSpeed(video, 1.5);
   assert.equal(video.playbackRate, 1.5);
+  assert.equal(config.settings.lastSpeed, 1.5);
 
   // Test explicit internal source
   actionHandler.adjustSpeed(video, 1.8, { source: 'internal' });
   assert.equal(video.playbackRate, 1.8);
+  assert.equal(config.settings.lastSpeed, 1.8);
 
-  // Test external source without force mode
-  config.settings.forceLastSavedSpeed = false;
+  // Test external source — applies to video but doesn't touch lastSpeed
   actionHandler.adjustSpeed(video, 2.5, { source: 'external' });
   assert.equal(video.playbackRate, 2.5);
-
-  // Test external source with force mode enabled
-  config.settings.forceLastSavedSpeed = true;
-  actionHandler.adjustSpeed(video, 3.0, { source: 'external' });
-  assert.equal(video.playbackRate, 2.5); // Should be blocked and restored to last internal change
+  assert.equal(config.settings.lastSpeed, 1.8, 'External change must not corrupt lastSpeed');
 });
 
 runner.test('adjustSpeed should work correctly with multiple videos', async () => {
@@ -742,24 +734,25 @@ runner.test('adjustSpeed should handle edge cases and error conditions', async (
   assert.equal(video.playbackRate, 1.01); // Should round to 1.01
 });
 
-runner.test('adjustSpeed should handle complex force mode scenarios', async () => {
+runner.test('adjustSpeed should preserve lastSpeed across external changes', async () => {
   const config = window.VSC.videoSpeedConfig;
   await config.load();
   config.settings.forceLastSavedSpeed = true;
-  config.settings.rememberSpeed = false; // Per-video mode
+  config.settings.rememberSpeed = true;
   config.settings.lastSpeed = 1.5;
 
   const actionHandler = new window.VSC.ActionHandler(config, null);
-
   const video = createTestVideoWithController(config, actionHandler, { currentSrc: 'https://example.com/video.mp4' });
 
-  // External changes should be blocked and restored to global speed
+  // External change reaches the video (force enforcement is in event-manager)
   actionHandler.adjustSpeed(video, 3.0, { source: 'external' });
-  assert.equal(video.playbackRate, 1.5);
+  assert.equal(video.playbackRate, 3.0);
+  assert.equal(config.settings.lastSpeed, 1.5, 'lastSpeed must survive external changes');
 
-  // Internal changes should work normally
+  // Internal changes update both
   actionHandler.adjustSpeed(video, 1.8, { source: 'internal' });
   assert.equal(video.playbackRate, 1.8);
+  assert.equal(config.settings.lastSpeed, 1.8);
 });
 
 runner.test('reset action should use configured reset speed value', async () => {
@@ -845,9 +838,10 @@ runner.test('reset action should work with keyboard event simulation', async () 
 
   // Simulate pressing R key (82) - this will pass the configured value automatically
   eventManager.handleKeydown({
-    keyCode: 82, // R key
+    code: 'KeyR', key: 'r', keyCode: 82,
     target: document.body,
-    getModifierState: () => false,
+    ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+    isComposing: false, timeStamp: 3000,
     preventDefault: () => {},
     stopPropagation: () => {}
   });

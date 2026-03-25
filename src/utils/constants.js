@@ -2,6 +2,13 @@
  * Constants and default values for Video Speed Controller
  */
 
+// Keyboard identity maps — shared with background.js (service worker context).
+// esbuild inlines these into each bundle at build time.
+import {
+  PREDEFINED_CODE_MAP, KEYCODE_TO_CODE, displayKeyFromCode,
+  PREDEFINED_ACTIONS, BLACKLISTED_CODES, DEFAULT_BINDINGS,
+} from './key-maps.js';
+
 window.VSC = window.VSC || {};
 window.VSC.Constants = {};
 
@@ -16,6 +23,7 @@ if (!window.VSC.Constants.DEFAULT_SETTINGS) {
   window.VSC.Constants.regEndsWithFlags = regEndsWithFlags;
 
   const DEFAULT_SETTINGS = {
+    schemaVersion: 1,
     lastSpeed: 1.0, // default 1x
     enabled: true, // default enabled
     rememberSpeed: false, // default: false
@@ -24,17 +32,9 @@ if (!window.VSC.Constants.DEFAULT_SETTINGS) {
     startHidden: false, // default: false
     controllerOpacity: 0.3, // default: 0.3
     controllerButtonSize: 14,
-    keyBindings: [
-      { action: 'slower', key: 83, value: 0.1, force: false, predefined: true }, // S
-      { action: 'faster', key: 68, value: 0.1, force: false, predefined: true }, // D
-      { action: 'rewind', key: 90, value: 10, force: false, predefined: true }, // Z
-      { action: 'advance', key: 88, value: 10, force: false, predefined: true }, // X
-      { action: 'reset', key: 82, value: 1.0, force: false, predefined: true }, // R
-      { action: 'fast', key: 71, value: 1.8, force: false, predefined: true }, // G
-      { action: 'display', key: 86, value: 0, force: false, predefined: true }, // V
-      { action: 'mark', key: 77, value: 0, force: false, predefined: true }, // M
-      { action: 'jump', key: 74, value: 0, force: false, predefined: true }, // J
-    ],
+    keyBindings: PREDEFINED_ACTIONS.map(action => ({
+      action, ...DEFAULT_BINDINGS[action], predefined: true,
+    })),
     blacklist: `www.instagram.com
 x.com
 imgur.com
@@ -96,4 +96,9 @@ meet.google.com`.replace(regStrip, ''),
   window.VSC.Constants.SPEED_LIMITS = SPEED_LIMITS;
   window.VSC.Constants.CONTROLLER_SIZE_LIMITS = CONTROLLER_SIZE_LIMITS;
   window.VSC.Constants.CUSTOM_ACTIONS_NO_VALUES = CUSTOM_ACTIONS_NO_VALUES;
+  window.VSC.Constants.PREDEFINED_CODE_MAP = PREDEFINED_CODE_MAP;
+  window.VSC.Constants.KEYCODE_TO_CODE = KEYCODE_TO_CODE;
+  window.VSC.Constants.displayKeyFromCode = displayKeyFromCode;
+  window.VSC.Constants.BLACKLISTED_CODES = BLACKLISTED_CODES;
+  window.VSC.Constants.PREDEFINED_ACTIONS = PREDEFINED_ACTIONS;
 }

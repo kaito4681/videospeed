@@ -10,7 +10,6 @@ class EventManager {
     this.actionHandler = actionHandler;
     this.listeners = new Map();
     this.coolDown = false;
-    this.timer = null;
 
     // Event deduplication to prevent duplicate key processing
     this.lastKeyEventSignature = null;
@@ -66,24 +65,19 @@ class EventManager {
    * @private
    */
   handleKeydown(event) {
-    const keyCode = event.keyCode;
+    window.VSC.logger.verbose(`Processing keydown event: code=${event.code}, key=${event.key}, keyCode=${event.keyCode}`);
 
-    window.VSC.logger.verbose(`Processing keydown event: key=${event.key}, keyCode=${keyCode}`);
+    // IME composition guard — prevent shortcuts during CJK input
+    if (event.isComposing || event.keyCode === 229 || event.key === 'Process') {
+      return;
+    }
 
-    // Event deduplication - prevent same key event from being processed multiple times
-    const eventSignature = `${keyCode}_${event.timeStamp}_${event.type}`;
-
+    // Event deduplication — include code+key to handle empty-code cases
+    const eventSignature = `${event.code}_${event.key}_${event.timeStamp}_${event.type}`;
     if (this.lastKeyEventSignature === eventSignature) {
       return;
     }
-
     this.lastKeyEventSignature = eventSignature;
-
-    // Ignore if following modifier is active
-    if (this.hasActiveModifier(event)) {
-      window.VSC.logger.debug(`Keydown event ignored due to active modifier: ${keyCode}`);
-      return;
-    }
 
     // Ignore keydown event if typing in an input box
     if (this.isTypingContext(event.target)) {
@@ -97,40 +91,77 @@ class EventManager {
       return false;
     }
 
-    // Find matching key binding
-    const keyBinding = this.config.settings.keyBindings.find((item) => item.key === keyCode);
+    // Find matching key binding using the three-tier algorithm
+    const keyBinding = this.findMatchingBinding(event);
 
     if (keyBinding) {
       this.actionHandler.runAction(keyBinding.action, keyBinding.value, event);
 
-      if (keyBinding.force === true || keyBinding.force === 'true') {
-        // Disable website's key bindings
+      if (keyBinding.force) {
         event.preventDefault();
         event.stopPropagation();
       }
     } else {
-      window.VSC.logger.verbose(`No key binding found for keyCode: ${keyCode}`);
+      window.VSC.logger.verbose(`No key binding found for code=${event.code}, keyCode=${event.keyCode}`);
     }
 
     return false;
   }
 
   /**
-   * Check if any modifier keys are active
-   * @param {KeyboardEvent} event - Keyboard event
-   * @returns {boolean} True if modifiers are active
+   * Three-tier binding match: chord → simple → legacy fallback.
+   *
+   * When event.code is empty/Unidentified (virtual keyboards, remote desktop,
+   * accessibility devices), falls back to keyCode matching for all bindings.
+   *
+   * @param {KeyboardEvent} event
+   * @returns {Object|undefined} Matching binding, or undefined
    * @private
    */
-  hasActiveModifier(event) {
-    return (
-      !event.getModifierState ||
-      event.getModifierState('Alt') ||
-      event.getModifierState('Control') ||
-      event.getModifierState('Fn') ||
-      event.getModifierState('Meta') ||
-      event.getModifierState('Hyper') ||
-      event.getModifierState('OS')
+  findMatchingBinding(event) {
+    const bindings = this.config.settings.keyBindings;
+    const code = event.code;
+    const keyCode = event.keyCode;
+    const ctrl = !!event.ctrlKey;
+    const alt = !!event.altKey;
+    const meta = !!event.metaKey;
+    const shift = !!event.shiftKey;
+    const hasModifier = ctrl || alt || meta;
+
+    // Runtime fallback: if event.code is empty or unidentified, match on keyCode
+    if (!code || code === 'Unidentified') {
+      return bindings.find(b => {
+        const bKey = b.keyCode ?? b.key;
+        if (bKey !== keyCode) return false;
+        return b.modifiers
+          ? EventManager.modifiersMatch(b.modifiers, ctrl, alt, meta, shift)
+          : !hasModifier;
+      });
+    }
+
+    // Tier 1: Chord match — bindings WITH modifiers, all must match exactly
+    const chordMatch = bindings.find(b =>
+      b.modifiers && b.code === code &&
+      EventManager.modifiersMatch(b.modifiers, ctrl, alt, meta, shift)
     );
+    if (chordMatch) return chordMatch;
+
+    // Tier 2: Simple match — bindings WITHOUT modifiers, no Ctrl/Alt/Meta active
+    if (!hasModifier) {
+      const simpleMatch = bindings.find(b => !b.modifiers && b.code === code);
+      if (simpleMatch) return simpleMatch;
+    }
+
+    // Tier 3: Legacy fallback — bindings missing code field, match on keyCode
+    if (!hasModifier) {
+      const legacyMatch = bindings.find(b => {
+        if (b.code !== null && b.code !== undefined) return false;
+        return (b.keyCode ?? b.key) === keyCode;
+      });
+      if (legacyMatch) return legacyMatch;
+    }
+
+    return undefined;
   }
 
   /**
@@ -286,37 +317,6 @@ class EventManager {
   }
 
   /**
-   * Show controller temporarily during speed changes or other automatic actions
-   * @param {Element} controller - Controller element
-   */
-  showController(controller) {
-    // When startHidden is enabled, only show temporary feedback if the user has
-    // previously interacted with this controller manually (vsc-manual class)
-    // This prevents unwanted controller appearances on pages where user wants them hidden
-    if (this.config.settings.startHidden && !controller.classList.contains('vsc-manual')) {
-      window.VSC.logger.info(
-        `Controller respecting startHidden setting - no temporary display (startHidden: ${this.config.settings.startHidden}, manual: ${controller.classList.contains('vsc-manual')})`
-      );
-      return;
-    }
-
-    window.VSC.logger.info(
-      `Showing controller temporarily (startHidden: ${this.config.settings.startHidden}, manual: ${controller.classList.contains('vsc-manual')})`
-    );
-    controller.classList.add('vsc-show');
-
-    if (this.timer) {
-      clearTimeout(this.timer);
-    }
-
-    this.timer = setTimeout(() => {
-      controller.classList.remove('vsc-show');
-      this.timer = null;
-      window.VSC.logger.debug('Hiding controller');
-    }, 2000);
-  }
-
-  /**
    * Clean up all event listeners
    */
   cleanup() {
@@ -337,11 +337,6 @@ class EventManager {
       this.coolDown = false;
     }
 
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-
     if (this.fightTimer) {
       clearTimeout(this.fightTimer);
       this.fightTimer = null;
@@ -349,6 +344,15 @@ class EventManager {
     this.fightCount = 0;
   }
 }
+
+/**
+ * Compare binding modifiers against event modifier state.
+ * @returns {boolean} True if all four modifiers match exactly.
+ */
+EventManager.modifiersMatch = function(mods, ctrl, alt, meta, shift) {
+  return mods.ctrl === ctrl && mods.alt === alt &&
+         mods.meta === meta && mods.shift === shift;
+};
 
 // Cooldown duration (ms) for ratechange handling
 EventManager.COOLDOWN_MS = 200;
