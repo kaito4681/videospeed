@@ -8,6 +8,7 @@ import {
   PREDEFINED_CODE_MAP, KEYCODE_TO_CODE, displayKeyFromCode,
   PREDEFINED_ACTIONS, BLACKLISTED_CODES, DEFAULT_BINDINGS,
 } from './key-maps.js';
+import { DEFAULT_CONTROLLER_CSS } from '../styles/controller-css-defaults.js';
 
 window.VSC = window.VSC || {};
 window.VSC.Constants = {};
@@ -22,6 +23,8 @@ if (!window.VSC.Constants.DEFAULT_SETTINGS) {
   window.VSC.Constants.regStrip = regStrip;
   window.VSC.Constants.regEndsWithFlags = regEndsWithFlags;
 
+  window.VSC.Constants.DEFAULT_CONTROLLER_CSS = DEFAULT_CONTROLLER_CSS;
+
   const DEFAULT_SETTINGS = {
     schemaVersion: 1,
     lastSpeed: 1.0, // default 1x
@@ -32,6 +35,7 @@ if (!window.VSC.Constants.DEFAULT_SETTINGS) {
     startHidden: false, // default: false
     controllerOpacity: 0.3, // default: 0.3
     controllerButtonSize: 14,
+    controllerCSS: DEFAULT_CONTROLLER_CSS,
     keyBindings: PREDEFINED_ACTIONS.map(action => ({
       action, ...DEFAULT_BINDINGS[action], predefined: true,
     })),

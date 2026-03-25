@@ -34,6 +34,10 @@ class VideoSpeedExtension {
       this.config = window.VSC.videoSpeedConfig;
       await this.config.load();
 
+      // Controller CSS and --vsc-domain are already injected by content-entry.js
+      // (before inject.js loads) for timing safety. For the main document, no
+      // action needed here. For iframe documents, see initializeDocument().
+
       // Initialize site handler
       this.siteHandlerManager.initialize(document);
 
@@ -70,7 +74,11 @@ class VideoSpeedExtension {
 
       window.VSC.initialized = true;
 
-      this.applyDomainStyles(document);
+      // Main document: --vsc-domain and controller CSS already injected by
+      // content-entry.js. For iframe documents, apply here.
+      if (document !== window.document) {
+        this.applyDomainStyles(document);
+      }
       this.eventManager.setupEventListeners(document);
       if (document !== window.document) {
         this.setupDocumentCSS(document);
@@ -182,12 +190,32 @@ class VideoSpeedExtension {
  */
   applyDomainStyles(document) {
     try {
-      const hostname = window.location.hostname;
+      // Strip www. prefix so CSS selectors only need the bare domain.
+      // e.g. "www.youtube.com" → "youtube.com"
+      const hostname = window.location.hostname.replace(/^www\./, '');
       if (document.documentElement) {
         document.documentElement.style.setProperty('--vsc-domain', `"${hostname}"`);
       }
     } catch (error) {
       this.logger.error(`Failed to apply domain styles: ${error.message}`);
+    }
+  }
+
+  /**
+   * Inject controller CSS into an iframe document.
+   * Main document CSS is handled by content-entry.js for timing safety.
+   * @param {Document} doc - iframe document
+   */
+  injectControllerCSS(doc) {
+    try {
+      const css = this.config.settings.controllerCSS ??
+        window.VSC.Constants.DEFAULT_CONTROLLER_CSS;
+      const style = doc.createElement('style');
+      style.id = 'vsc-controller-css';
+      style.textContent = css;
+      (doc.head || doc.documentElement).appendChild(style);
+    } catch (error) {
+      this.logger.error(`Failed to inject controller CSS: ${error.message}`);
     }
   }
 
@@ -303,6 +331,7 @@ class VideoSpeedExtension {
    * @param {Document} document - Document to set up CSS for
    */
   setupDocumentCSS(document) {
+    // Inject the manifest CSS (non-positioning fixes) via <link>
     const link = document.createElement('link');
     link.href =
       typeof chrome !== 'undefined' && chrome.runtime
@@ -310,7 +339,11 @@ class VideoSpeedExtension {
         : '/src/styles/inject.css';
     link.type = 'text/css';
     link.rel = 'stylesheet';
-    document.head.appendChild(link);
+    (document.head || document.documentElement).appendChild(link);
+
+    // Inject controller CSS (no live-update for iframes — update on refresh)
+    this.injectControllerCSS(document);
+
     this.logger.debug('CSS injected into iframe document');
   }
 

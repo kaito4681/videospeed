@@ -548,6 +548,42 @@ button:focus-visible {
   flex: none;
 }
 
+/* Controller CSS textarea */
+.row:has(#controllerCSS) {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row:has(#controllerCSS) label {
+  flex: none;
+}
+
+#resetCSS {
+  font-size: inherit;
+}
+
+#controllerCSS {
+  font-family: 'Menlo', 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition: border-color 0.2s;
+}
+
+#controllerCSS::-webkit-scrollbar:horizontal {
+  display: none;
+}
+
+#controllerCSS.css-error { border-color: #d32f2f; }
+#controllerCSS.css-warn { border-color: #f57c00; }
+
+.css-validation { font-size: 12px; }
+.css-validation.error { color: #d32f2f; }
+.css-validation.warn { color: #f57c00; }
+
 /* FAQ section */
 #faq {
   margin-top: 24px;

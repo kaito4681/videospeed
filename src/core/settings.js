@@ -92,6 +92,7 @@ if (!window.VSC.VideoSpeedConfig) {
         this.settings.startHidden = Boolean(storage.startHidden);
         this.settings.controllerOpacity = Number(storage.controllerOpacity);
         this.settings.controllerButtonSize = Number(storage.controllerButtonSize);
+        this.settings.controllerCSS = storage.controllerCSS ?? window.VSC.Constants.DEFAULT_CONTROLLER_CSS;
         this.settings.logLevel = Number(
           storage.logLevel || window.VSC.Constants.DEFAULT_SETTINGS.logLevel
         );

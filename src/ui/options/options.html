@@ -121,6 +121,13 @@
       </select>
     </div>
     <div class="row advanced-feature">
+      <label for="controllerCSS">Controller CSS<br />
+        <em>Customize controller positioning per site. <a href="#" id="resetCSS">Reset to defaults</a>.</em>
+      </label>
+      <textarea id="controllerCSS" rows="20" cols="60"></textarea>
+      <div id="cssValidation" class="css-validation"></div>
+    </div>
+    <div class="row advanced-feature">
       <label for="blacklist">Disable on sites<br />
         <em>One host or <a href="https://www.regexpal.com/">Regex</a> per line. Use the literal notation, e.g.
           <code>/(.+)youtube\.com(\/*)$/gi</code></em>
