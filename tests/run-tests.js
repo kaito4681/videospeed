@@ -74,6 +74,7 @@ Object.assign(global, {
   CustomEvent: dom.window.CustomEvent,
   MutationObserver: dom.window.MutationObserver,
   customElements: dom.window.customElements,
+  getComputedStyle: dom.window.getComputedStyle,
   requestIdleCallback: (fn) => setTimeout(fn, 0),
   location: { hostname: 'localhost', href: 'http://localhost' }
 });
