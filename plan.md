@@ -341,7 +341,23 @@ Future contributors may be tempted to add `position: absolute !important` back. 
 
 Both reviewers confirmed: `getComputedStyle()` forces synchronous style recalculation, but MutationObservers are microtask-based and won't fire between insertion and the computed style check in the same synchronous JS turn. inject.css is loaded as content script CSS (manifest.json), so it's available before any JS runs.
 
-### R8: Document `calculatePosition()` limitation (ACCEPTED)
+### R8: CSS race condition in same-origin iframes (NOTED)
+
+**Reviewer 1 flagged this.** For same-origin iframes discovered by MutationObserver, CSS is injected via a dynamic `<link>` element (`inject.js` line 306-313), which loads asynchronously. If a controller is created before the `<link>` loads, `getComputedStyle` returns the wrong position value and the CSS override is missed.
+
+**Severity**: Low for the immediate fix. Cross-origin iframes (like YouTube embeds on igvita.com) get CSS injected by the browser via manifest `all_frames: true` — no race condition. Same-origin iframes with videos are rare. But worth fixing later with a `<link>` onload guard.
+
+**Resolution**: Document as known limitation. Defer fix to a follow-up.
+
+### R9: Amazon Prime Video has custom insertion but no position CSS override (NOTED)
+
+**Reviewer 1 flagged this.** Amazon handler uses `beforeParent` insertion for Prime Video, but inject.css only has `height: 0` for `.dv-player-fullscreen` — no `position: relative` rule. In non-fullscreen mode, no CSS rule matches at all.
+
+With the wrapper defaulting to `position: absolute` (R1), `calculatePosition()` runs. Whether it produces correct coordinates depends on whether the wrapper (inserted before `parent.parentElement`) shares the same containing block as the video. This needs verification.
+
+**Resolution**: Add Amazon Prime Video to verification plan. If positioning is wrong, add a CSS override.
+
+### R10: Document `calculatePosition()` limitation (ACCEPTED)
 
 `calculatePosition()` computes relative to `video.offsetParent`, but the inner `#controller`'s containing block is the nearest positioned ancestor of the wrapper. These are the same when the wrapper is near the video (true for default insertion and most handlers), but could diverge if a handler inserts far away without a CSS override. This is a pre-existing limitation. The handler `positionOverride` escape hatch (deferred) addresses it.
 
@@ -392,7 +408,8 @@ if (!isRelative) {
 | YouTube (embedded, e.g. igvita.com) | Controller 60px below top (clears title) | `.html5-video-player:not(.ytp-hide-info-bar)` CSS override active |
 | Netflix | Controller 85px below top (clears transport) | `#netflix-player` CSS override active |
 | Facebook | Controller 40px below top | `#facebook` CSS override active |
-| Apple TV+ | Controller at video's top-left corner | `calculatePosition()` path, no CSS override |
+| Apple TV+ | Controller at video's top-left corner | `calculatePosition()` path, no CSS override — verify coordinates correct |
+| Amazon Prime Video (non-fullscreen) | Controller at video's top-left corner | `calculatePosition()` path, no CSS override — verify coordinates correct |
 | Generic site (e.g. random `<video>`) | Controller at video's top-left corner | `calculatePosition()` path, no CSS override |
 | Drag on any site | Controller moves smoothly, stays at new position | Inner `#controller` `top`/`left` updated |
 | Amazon Prime Video | No black overlay | `height: 0 !important` rule works |
