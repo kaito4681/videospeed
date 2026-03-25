@@ -22,7 +22,7 @@ vsc-controller {
 
 /* YouTube paid promotion overlay — shift controller below it while visible */
 .ytp-hide-info-bar:has(.ytp-paid-content-overlay-link:not([style*="display: none"])) vsc-controller {
-  top: 35px;
+  top: 40px;
 }
 
 /* YouTube embedded player */
