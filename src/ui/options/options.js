@@ -651,7 +651,7 @@ async function restore_options() {
     // Check if any keybindings have force property set, if so, show experimental features
     const hasExperimentalFeatures = keyBindings.some(kb => kb.force !== undefined && kb.force !== false);
     if (hasExperimentalFeatures) {
-      show_experimental();
+      toggle_experimental();
     }
   } catch (error) {
     console.error("Failed to restore options:", error);
@@ -708,66 +708,60 @@ async function restore_defaults() {
   }
 }
 
-function show_experimental() {
+function toggle_experimental() {
   const button = document.getElementById("experimental");
-  const customRows = document.querySelectorAll('.row.customs');
   const advancedRows = document.querySelectorAll('.row.advanced-feature');
+  const isVisible = advancedRows.length > 0 && advancedRows[0].classList.contains('show');
+
+  if (isVisible) {
+    // Hide advanced features
+    advancedRows.forEach((row) => row.classList.remove('show'));
+    document.querySelectorAll('.customForce').forEach((el) => el.classList.remove('show'));
+    button.textContent = "Show advanced features";
+    return;
+  }
 
   // Show advanced feature rows
-  advancedRows.forEach((row) => {
-    row.classList.add('show');
-  });
+  advancedRows.forEach((row) => row.classList.add('show'));
 
-  // Create the select template
-  const createForceSelect = () => {
-    const select = document.createElement('select');
-    select.className = 'customForce show';
-    select.innerHTML = `
-      <option value="false">Allow event propagation</option>
-      <option value="true">Disable event propagation</option>
-    `;
-    return select;
-  };
-
-  // Add select to each row
+  // Create force selects on first show (only once)
+  const customRows = document.querySelectorAll('.row.customs');
   customRows.forEach((row) => {
     const existingSelect = row.querySelector('.customForce');
 
     if (!existingSelect) {
-      // Create new select if it doesn't exist
       const customValue = row.querySelector('.customValue');
-      const newSelect = createForceSelect();
+      const newSelect = document.createElement('select');
+      newSelect.className = 'customForce show';
+      newSelect.innerHTML = `
+        <option value="false">Allow event propagation</option>
+        <option value="true">Disable event propagation</option>
+      `;
 
-      // Check if this row has saved force value
+      // Restore saved force value
       const rowId = row.id;
-      if (rowId && window.VSC.videoSpeedConfig && window.VSC.videoSpeedConfig.settings.keyBindings) {
-        // For predefined shortcuts
+      if (rowId && window.VSC.videoSpeedConfig?.settings.keyBindings) {
         const savedBinding = window.VSC.videoSpeedConfig.settings.keyBindings.find(kb => kb.action === rowId);
         if (savedBinding && savedBinding.force !== undefined) {
           newSelect.value = String(savedBinding.force);
         }
       } else if (!rowId) {
-        // For custom shortcuts, try to find the force value from the current keyBindings array
         const rowIndex = Array.from(row.parentElement.querySelectorAll('.row.customs:not([id])')).indexOf(row);
         const customBindings = window.VSC.videoSpeedConfig?.settings.keyBindings?.filter(kb => !kb.predefined) || [];
-        if (customBindings[rowIndex] && customBindings[rowIndex].force !== undefined) {
+        if (customBindings[rowIndex]?.force !== undefined) {
           newSelect.value = String(customBindings[rowIndex].force);
         }
       }
 
-      // Insert after the customValue input
       if (customValue) {
         customValue.parentNode.insertBefore(newSelect, customValue.nextSibling);
       }
     } else {
-      // If it already exists, just show it
       existingSelect.classList.add('show');
     }
   });
 
-  // Update button text to indicate the feature is now enabled
-  button.textContent = "Advanced features enabled";
-  button.disabled = true;
+  button.textContent = "Hide advanced features";
 }
 
 // Create debounced save function to prevent rapid saves
@@ -799,7 +793,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     await restore_defaults();
   });
 
-  document.getElementById("experimental").addEventListener("click", show_experimental);
+  document.getElementById("experimental").addEventListener("click", toggle_experimental);
 
   // Live CSS validation as user types (debounced)
   var cssValidationTimer;
