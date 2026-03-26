@@ -94,7 +94,6 @@ class VideoController {
 
     const document = this.video.ownerDocument;
     const speed = window.VSC.Constants.formatSpeed(this.video.playbackRate);
-    const position = window.VSC.ShadowDOMManager.calculatePosition(this.video);
 
     window.VSC.logger.debug(`Speed variable set to: ${speed}`);
 
@@ -119,21 +118,15 @@ class VideoController {
     // Apply all classes at once to prevent visible flash
     wrapper.className = cssClasses.join(' ');
 
-    // Set positioning styles with calculated position
-    // Only use positioning styles - rely on CSS classes for visibility
-    const styleText = `
-      position: absolute !important;
-      z-index: 9999999 !important;
-      top: ${position.top};
-      left: ${position.left};
-    `;
+    // IMPORTANT: Wrapper gets z-index ONLY — no position, no top, no left.
+    // Position is controlled by inject.css (default: absolute; site overrides: relative).
+    // Adding inline position here would defeat CSS site overrides via specificity.
+    wrapper.style.cssText = 'z-index: 9999999 !important;';
 
-    wrapper.style.cssText = styleText;
-
-    // Create shadow DOM with relative positioning inside shadow root
+    // Create shadow DOM with placeholder position (set after insertion)
     const shadow = window.VSC.ShadowDOMManager.createShadowDOM(wrapper, {
-      top: '0px', // Position relative to shadow root since wrapper is already positioned
-      left: '0px', // Position relative to shadow root since wrapper is already positioned
+      top: '0px',
+      left: '0px',
       speed: speed,
       opacity: this.config.settings.controllerOpacity,
       buttonSize: this.config.settings.controllerButtonSize,
@@ -145,8 +138,20 @@ class VideoController {
     // Store speed indicator reference
     this.speedIndicator = window.VSC.ShadowDOMManager.getSpeedIndicator(shadow);
 
-    // Insert into DOM based on site-specific rules
+    // Insert into DOM FIRST — position calculation needs the wrapper in the DOM
     this.insertIntoDOM(document, wrapper);
+
+    // THEN compute position based on actual DOM state.
+    // If a CSS override sets the wrapper to position:relative (e.g. YouTube, Netflix),
+    // the inner controller stays at (0,0) and the CSS nudge handles placement.
+    // Otherwise (wrapper is absolute), compute coordinates for generic sites.
+    const computedPosition = getComputedStyle(wrapper).position;
+    if (computedPosition !== 'relative') {
+      const position = window.VSC.ShadowDOMManager.calculatePosition(this.video);
+      const innerController = window.VSC.ShadowDOMManager.getController(shadow);
+      innerController.style.top = position.top;
+      innerController.style.left = position.left;
+    }
 
     window.VSC.logger.debug('initializeControls End');
     return wrapper;

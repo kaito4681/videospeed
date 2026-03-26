@@ -74,6 +74,7 @@ Object.assign(global, {
   CustomEvent: dom.window.CustomEvent,
   MutationObserver: dom.window.MutationObserver,
   customElements: dom.window.customElements,
+  getComputedStyle: dom.window.getComputedStyle,
   requestIdleCallback: (fn) => setTimeout(fn, 0),
   location: { hostname: 'localhost', href: 'http://localhost' }
 });
@@ -138,6 +139,7 @@ async function runTests() {
       'unit/core/f-keys.test.js',
       'unit/core/migration.test.js',
       'unit/core/settings-race-condition.test.js',
+      'unit/core/controller-css.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
       'unit/content/inject.test.js',
@@ -170,6 +172,7 @@ async function runTests() {
       'unit/core/f-keys.test.js',
       'unit/core/migration.test.js',
       'unit/core/settings-race-condition.test.js',
+      'unit/core/controller-css.test.js',
       'unit/observers/mutation-observer.test.js',
       'unit/observers/audio-size-handling.test.js',
       'unit/content/inject.test.js',

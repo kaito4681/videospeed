@@ -270,12 +270,12 @@ runner.test('ActionHandler should toggle display visibility', async () => {
   assert.true(controller.classList.contains('vsc-hidden'));
   assert.true(controller.classList.contains('vsc-manual'));
 
-  // Second toggle - should show, vsc-manual cleared (startHidden=false)
+  // Second toggle - should show, vsc-manual persists (user expressed intent)
   actionHandler.runAction('display', null, null);
   assert.false(controller.classList.contains('vsc-hidden'));
-  assert.false(controller.classList.contains('vsc-manual'));
+  assert.true(controller.classList.contains('vsc-manual'));
 
-  // Third toggle - should hide again, vsc-manual re-added
+  // Third toggle - should hide again
   actionHandler.runAction('display', null, null);
   assert.true(controller.classList.contains('vsc-hidden'));
   assert.true(controller.classList.contains('vsc-manual'));
@@ -786,6 +786,184 @@ runner.test('reset action should use configured reset speed value', async () => 
   actionHandler.runAction('reset', 1.5); // Pass custom value
   assert.equal(mockVideo3.playbackRate, 2.2); // Should restore remembered speed
   assert.equal(mockVideo3.vsc.speedBeforeReset, null); // Should clear memory
+});
+
+// --- Cross-toggle tests (reset ↔ preferred speed) ---
+
+runner.test('reset at target with no memory should cross-toggle to preferred speed', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = null;
+
+  // Reset at 1.0x with no memory → should cross-toggle to preferred speed (1.8)
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 1.8, 'Should cross-toggle to preferred speed');
+  assert.equal(video.vsc.speedBeforeReset, 1.0, 'Should remember the speed before cross-toggle');
+});
+
+runner.test('preferred at target with no memory should cross-toggle to reset speed', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.8 });
+  video.vsc.speedBeforeReset = null;
+
+  // Preferred at 1.8x with no memory → should cross-toggle to reset speed (1.0)
+  actionHandler.resetSpeed(video, 1.8, 1.0);
+  assert.equal(video.playbackRate, 1.0, 'Should cross-toggle to reset speed');
+  assert.equal(video.vsc.speedBeforeReset, 1.8, 'Should remember the speed before cross-toggle');
+});
+
+runner.test('cross-toggle should not fire when crossTarget equals target', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = null;
+
+  // If both reset and preferred are configured to 1.0, cross-toggle should be a no-op
+  actionHandler.resetSpeed(video, 1.0, 1.0);
+  assert.equal(video.playbackRate, 1.0, 'Should not change speed when crossTarget equals target');
+  assert.equal(video.vsc.speedBeforeReset, null, 'Should not set memory when crossTarget equals target');
+});
+
+runner.test('cross-toggle should not fire when memory exists', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = 2.5;
+
+  // At target with memory → should restore, not cross-toggle
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 2.5, 'Should restore remembered speed, not cross-toggle');
+  assert.equal(video.vsc.speedBeforeReset, null, 'Memory should be cleared after restore');
+});
+
+runner.test('reset key should toggle between 1.0 and preferred speed repeatedly', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = null;
+
+  // Press 1: at 1.0 with no memory → cross-toggle to 1.8
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 1.8);
+
+  // Press 2: at 1.8, not at target (1.0) → remember 1.8, go to 1.0
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 1.0);
+
+  // Press 3: at 1.0 with memory (1.8) → restore to 1.8
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 1.8);
+
+  // Press 4: at 1.8, not at target (1.0) → remember 1.8, go to 1.0
+  actionHandler.resetSpeed(video, 1.0, 1.8);
+  assert.equal(video.playbackRate, 1.0);
+});
+
+runner.test('cross-toggle works end-to-end via runAction with default bindings', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  // Ensure default bindings are in effect
+  config.setKeyBinding('reset', 1.0);
+  config.setKeyBinding('fast', 1.8);
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = null;
+
+  // runAction('reset', 1.0) should cross-toggle to preferred (1.8) via config lookup
+  actionHandler.runAction('reset', 1.0);
+  assert.equal(video.playbackRate, 1.8, 'Reset at 1.0 should cross-toggle to preferred speed');
+
+  // Reset back
+  actionHandler.runAction('reset', 1.0);
+  assert.equal(video.playbackRate, 1.0, 'Reset from 1.8 should go to 1.0');
+});
+
+runner.test('cross-toggle works end-to-end via runAction for fast action', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  // Ensure default bindings are in effect
+  config.setKeyBinding('reset', 1.0);
+  config.setKeyBinding('fast', 1.8);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.8 });
+  video.vsc.speedBeforeReset = null;
+
+  // runAction('fast', 1.8) should cross-toggle to reset (1.0)
+  actionHandler.runAction('fast', 1.8);
+  assert.equal(video.playbackRate, 1.0, 'Fast at 1.8 should cross-toggle to reset speed');
+
+  // Fast back
+  actionHandler.runAction('fast', 1.8);
+  assert.equal(video.playbackRate, 1.8, 'Fast from 1.0 should go to 1.8');
+});
+
+runner.test('cross-toggle with custom reset and preferred speeds', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  // Set custom speeds
+  config.setKeyBinding('reset', 1.5);
+  config.setKeyBinding('fast', 2.0);
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.5 });
+  video.vsc.speedBeforeReset = null;
+
+  // Reset at custom 1.5 with no memory → cross-toggle to custom preferred 2.0
+  actionHandler.runAction('reset', 1.5);
+  assert.equal(video.playbackRate, 2.0, 'Should cross-toggle to custom preferred speed');
+
+  // Toggle back
+  actionHandler.runAction('reset', 1.5);
+  assert.equal(video.playbackRate, 1.5, 'Should go back to custom reset speed');
+});
+
+runner.test('resetSpeed without crossTarget preserves backward compatibility', async () => {
+  const config = window.VSC.videoSpeedConfig;
+  await config.load();
+
+  const eventManager = new window.VSC.EventManager(config, null);
+  const actionHandler = new window.VSC.ActionHandler(config, eventManager);
+
+  const video = createTestVideoWithController(config, actionHandler, { playbackRate: 1.0 });
+  video.vsc.speedBeforeReset = null;
+
+  // Called without crossTarget (e.g. from double-click reset) → should be a no-op at target
+  actionHandler.resetSpeed(video, 1.0);
+  assert.equal(video.playbackRate, 1.0, 'Should not change speed without crossTarget');
+  assert.equal(video.vsc.speedBeforeReset, null, 'Should not set memory without crossTarget');
 });
 
 runner.test('lastSpeed should update during session even when rememberSpeed is false', async () => {

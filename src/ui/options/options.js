@@ -29,6 +29,118 @@ function debounce(func, wait) {
 
 var keyBindings = [];
 
+/**
+ * Validate CSS using the browser's own parser.
+ * Updates the textarea border and validation message inline.
+ * @param {string} css - CSS text to validate
+ * @returns {boolean} true if valid (ok to save)
+ */
+// Count rules in the default CSS (computed once for comparison)
+var defaultCSSRuleCount = null;
+function getDefaultRuleCount() {
+  if (defaultCSSRuleCount === null) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(window.VSC.Constants.DEFAULT_CONTROLLER_CSS);
+      defaultCSSRuleCount = sheet.cssRules.length;
+    } catch (e) {
+      defaultCSSRuleCount = 0;
+    }
+  }
+  return defaultCSSRuleCount;
+}
+
+/**
+ * Find CSS rule blocks that the browser silently dropped.
+ * Splits CSS into top-level rule blocks and tries each one individually.
+ * @param {string} css - Original CSS text
+ * @param {CSSStyleSheet} parsedSheet - Sheet from replaceSync (for count comparison)
+ * @returns {string[]} Array of rule-block snippets that failed to parse
+ */
+function findDroppedRules(css, parsedSheet) {
+  // Split into top-level blocks by tracking brace depth
+  const blocks = [];
+  let depth = 0;
+  let start = 0;
+  // Strip comments first so braces inside comments don't confuse us
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, m => ' '.repeat(m.length));
+
+  for (let i = 0; i < stripped.length; i++) {
+    if (stripped[i] === '{') depth++;
+    else if (stripped[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        blocks.push(css.substring(start, i + 1).trim());
+        start = i + 1;
+      }
+    }
+  }
+
+  // If total block count matches parsed rule count, nothing was dropped
+  if (blocks.length <= parsedSheet.cssRules.length) return [];
+
+  // Try each block individually to find which ones fail
+  const dropped = [];
+  const probe = new CSSStyleSheet();
+  for (const block of blocks) {
+    try {
+      probe.replaceSync(block);
+      if (probe.cssRules.length === 0) {
+        // Extract the selector part for the message
+        const selector = block.split('{')[0].trim();
+        dropped.push(selector || block.slice(0, 40));
+      }
+    } catch (e) {
+      const selector = block.split('{')[0].trim();
+      dropped.push(selector || block.slice(0, 40));
+    }
+  }
+  return dropped;
+}
+
+function validateControllerCSS(css) {
+  const textarea = document.getElementById('controllerCSS');
+  const msg = document.getElementById('cssValidation');
+  textarea.classList.remove('css-error', 'css-warn');
+  msg.classList.remove('error', 'warn');
+  msg.textContent = '';
+
+  if (!css.trim()) {
+    return true;
+  }
+
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    const count = sheet.cssRules.length;
+
+    if (count === 0) {
+      textarea.classList.add('css-warn');
+      msg.classList.add('warn');
+      msg.textContent = 'No CSS rules parsed — check for syntax errors.';
+      return true;
+    }
+
+    // Find rules that the browser silently dropped
+    const dropped = findDroppedRules(css, sheet);
+    if (dropped.length > 0) {
+      textarea.classList.add('css-warn');
+      msg.classList.add('warn');
+      msg.textContent = count + ' rule' + (count !== 1 ? 's' : '') +
+        ' parsed, ' + dropped.length + ' dropped: ' +
+        dropped.map(r => '"' + r.slice(0, 40) + (r.length > 40 ? '...' : '') + '"').join(', ');
+      return true;
+    }
+
+    return true;
+  } catch (e) {
+    textarea.classList.add('css-error');
+    msg.classList.add('error');
+    msg.textContent = 'Syntax error: ' + e.message.replace(/^Failed to execute.*: /, '');
+    return false;
+  }
+}
+
 // TODO(v3): Remove keyCodeAliases once all bindings have displayKey field
 // and the legacy `key` integer field is dropped from the schema.
 var keyCodeAliases = {
@@ -381,13 +493,37 @@ async function save_options() {
     var controllerButtonSize = Number(document.getElementById("controllerButtonSize").value);
     var logLevel = parseInt(document.getElementById("logLevel").value);
     var blacklist = document.getElementById("blacklist").value;
+    var controllerCSS = document.getElementById("controllerCSS").value;
+
+    // Validate CSS syntax — block save on parse error
+    if (!validateControllerCSS(controllerCSS)) {
+      status.textContent = 'Error: Controller CSS has syntax errors. Fix them before saving.';
+      status.classList.add('show', 'error');
+      setTimeout(function () {
+        status.textContent = '';
+        status.classList.remove('show', 'error');
+      }, 5000);
+      return;
+    }
+
+    // Byte-length guard for chrome.storage.sync (8KB per-item limit)
+    const cssByteSize = new Blob([controllerCSS]).size;
+    if (cssByteSize > 8192) {
+      status.textContent = 'Error: Controller CSS exceeds 8KB storage limit (' + Math.round(cssByteSize / 1024) + 'KB). Reduce CSS size.';
+      status.classList.add('show', 'error');
+      setTimeout(function () {
+        status.textContent = '';
+        status.classList.remove('show', 'error');
+      }, 5000);
+      return;
+    }
 
     // Ensure VideoSpeedConfig singleton is initialized
     if (!window.VSC.videoSpeedConfig) {
       window.VSC.videoSpeedConfig = new window.VSC.VideoSpeedConfig();
     }
 
-    // Use VideoSpeedConfig to save settings
+    // Use VideoSpeedConfig to save settings (sync storage)
     const settingsToSave = {
       rememberSpeed: rememberSpeed,
       forceLastSavedSpeed: forceLastSavedSpeed,
@@ -397,7 +533,8 @@ async function save_options() {
       controllerButtonSize: controllerButtonSize,
       logLevel: logLevel,
       keyBindings: keyBindings,
-      blacklist: blacklist.replace(window.VSC.Constants.regStrip, "")
+      blacklist: blacklist.replace(window.VSC.Constants.regStrip, ""),
+      controllerCSS: controllerCSS,
     };
 
     const ok = await window.VSC.videoSpeedConfig.save(settingsToSave);
@@ -445,6 +582,8 @@ async function restore_options() {
     document.getElementById("controllerButtonSize").value = storage.controllerButtonSize;
     document.getElementById("logLevel").value = storage.logLevel;
     document.getElementById("blacklist").value = storage.blacklist;
+    document.getElementById("controllerCSS").value =
+      storage.controllerCSS ?? window.VSC.Constants.DEFAULT_CONTROLLER_CSS;
 
     // Process key bindings
     const keyBindings = storage.keyBindings || window.VSC.Constants.DEFAULT_SETTINGS.keyBindings;
@@ -512,7 +651,7 @@ async function restore_options() {
     // Check if any keybindings have force property set, if so, show experimental features
     const hasExperimentalFeatures = keyBindings.some(kb => kb.force !== undefined && kb.force !== false);
     if (hasExperimentalFeatures) {
-      show_experimental();
+      toggle_experimental();
     }
   } catch (error) {
     console.error("Failed to restore options:", error);
@@ -569,66 +708,60 @@ async function restore_defaults() {
   }
 }
 
-function show_experimental() {
+function toggle_experimental() {
   const button = document.getElementById("experimental");
-  const customRows = document.querySelectorAll('.row.customs');
   const advancedRows = document.querySelectorAll('.row.advanced-feature');
+  const isVisible = advancedRows.length > 0 && advancedRows[0].classList.contains('show');
+
+  if (isVisible) {
+    // Hide advanced features
+    advancedRows.forEach((row) => row.classList.remove('show'));
+    document.querySelectorAll('.customForce').forEach((el) => el.classList.remove('show'));
+    button.textContent = "Show advanced features";
+    return;
+  }
 
   // Show advanced feature rows
-  advancedRows.forEach((row) => {
-    row.classList.add('show');
-  });
+  advancedRows.forEach((row) => row.classList.add('show'));
 
-  // Create the select template
-  const createForceSelect = () => {
-    const select = document.createElement('select');
-    select.className = 'customForce show';
-    select.innerHTML = `
-      <option value="false">Allow event propagation</option>
-      <option value="true">Disable event propagation</option>
-    `;
-    return select;
-  };
-
-  // Add select to each row
+  // Create force selects on first show (only once)
+  const customRows = document.querySelectorAll('.row.customs');
   customRows.forEach((row) => {
     const existingSelect = row.querySelector('.customForce');
 
     if (!existingSelect) {
-      // Create new select if it doesn't exist
       const customValue = row.querySelector('.customValue');
-      const newSelect = createForceSelect();
+      const newSelect = document.createElement('select');
+      newSelect.className = 'customForce show';
+      newSelect.innerHTML = `
+        <option value="false">Allow event propagation</option>
+        <option value="true">Disable event propagation</option>
+      `;
 
-      // Check if this row has saved force value
+      // Restore saved force value
       const rowId = row.id;
-      if (rowId && window.VSC.videoSpeedConfig && window.VSC.videoSpeedConfig.settings.keyBindings) {
-        // For predefined shortcuts
+      if (rowId && window.VSC.videoSpeedConfig?.settings.keyBindings) {
         const savedBinding = window.VSC.videoSpeedConfig.settings.keyBindings.find(kb => kb.action === rowId);
         if (savedBinding && savedBinding.force !== undefined) {
           newSelect.value = String(savedBinding.force);
         }
       } else if (!rowId) {
-        // For custom shortcuts, try to find the force value from the current keyBindings array
         const rowIndex = Array.from(row.parentElement.querySelectorAll('.row.customs:not([id])')).indexOf(row);
         const customBindings = window.VSC.videoSpeedConfig?.settings.keyBindings?.filter(kb => !kb.predefined) || [];
-        if (customBindings[rowIndex] && customBindings[rowIndex].force !== undefined) {
+        if (customBindings[rowIndex]?.force !== undefined) {
           newSelect.value = String(customBindings[rowIndex].force);
         }
       }
 
-      // Insert after the customValue input
       if (customValue) {
         customValue.parentNode.insertBefore(newSelect, customValue.nextSibling);
       }
     } else {
-      // If it already exists, just show it
       existingSelect.classList.add('show');
     }
   });
 
-  // Update button text to indicate the feature is now enabled
-  button.textContent = "Advanced features enabled";
-  button.disabled = true;
+  button.textContent = "Hide advanced features";
 }
 
 // Create debounced save function to prevent rapid saves
@@ -660,7 +793,26 @@ document.addEventListener("DOMContentLoaded", async function () {
     await restore_defaults();
   });
 
-  document.getElementById("experimental").addEventListener("click", show_experimental);
+  document.getElementById("experimental").addEventListener("click", toggle_experimental);
+
+  // Live CSS validation as user types (debounced)
+  var cssValidationTimer;
+  document.getElementById("controllerCSS").addEventListener("input", function () {
+    clearTimeout(cssValidationTimer);
+    cssValidationTimer = setTimeout(function () {
+      validateControllerCSS(document.getElementById("controllerCSS").value);
+    }, 300);
+  });
+
+  // Validate on initial load
+  validateControllerCSS(document.getElementById("controllerCSS").value);
+
+  document.getElementById("resetCSS").addEventListener("click", function (e) {
+    e.preventDefault();
+    document.getElementById("controllerCSS").value =
+      window.VSC.Constants.DEFAULT_CONTROLLER_CSS;
+    validateControllerCSS(window.VSC.Constants.DEFAULT_CONTROLLER_CSS);
+  });
 
   // About and feedback button event listeners
   document.getElementById("about").addEventListener("click", function () {
