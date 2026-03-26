@@ -9,3 +9,4 @@ local
 dist
 tests/e2e/screenshots
 node_modules
+plan.md
